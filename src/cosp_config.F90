@@ -14,7 +14,7 @@
 !
 ! 3. Neither the name of the copyright holder nor the names of its contributors may be 
 !    used to endorse or promote products derived from this software without specific prior
-!    written permission.
+!    written permission.SG
 !
 ! THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY 
 ! EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF 
@@ -38,6 +38,7 @@
 ! Mar 2016 - D. Swales        - Added scops_ccfrac. Was previously hardcoded in prec_scops.f90.  
 ! Mar 2018 - R. Guzman        - Added LIDAR_NTYPE for the OPAQ diagnostics
 ! Apr 2018 - R. Guzman        - Added parameters for GROUND LIDAR and ATLID simulators
+! Nov 2018 - T. Michibata     - Added CloudSat+MODIS Warmrain Diagnostics
 !
 ! %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -141,7 +142,7 @@ MODULE MOD_COSP_CONFIG
                                     shape = (/2,nReffICE/)) 
     real(wp),parameter,dimension(2,nReffLIQ) :: &
          reffLIQ_binEdges = reshape(source=(/reffLIQ_binBounds(1),((reffLIQ_binBounds(k),  &
-                                    l=1,2),k=2,nReffLIQ),reffLIQ_binBounds(nReffICE+1)/),  &
+                                    l=1,2),k=2,nReffLIQ),reffLIQ_binBounds(nReffLIQ+1)/),  &
                                     shape = (/2,nReffLIQ/))             
     real(wp),parameter,dimension(nReffICE) :: &
          reffICE_binCenters = (reffICE_binEdges(1,:)+reffICE_binEdges(2,:))/2._wp
@@ -264,8 +265,8 @@ MODULE MOD_COSP_CONFIG
     real(wp),parameter,dimension(nReffLiq+1) :: &
          modis_histReffLiq = reffLIQ_binBounds         ! Effective radius bin boundaries 
     real(wp),parameter,dimension(nReffLiq) :: &
-         modis_histReffLiqCenters = reffICE_binCenters ! Effective radius bin centers
-    real(wp),parameter,dimension(2,nReffICE) :: &
+         modis_histReffLiqCenters = reffLIQ_binCenters ! Effective radius bin centers
+    real(wp),parameter,dimension(2,nReffLiq) :: &
          modis_histReffLiqEdges = reffLIQ_binEdges     ! Effective radius bin edges
 
     ! ####################################################################################
@@ -288,7 +289,7 @@ MODULE MOD_COSP_CONFIG
                                    shape = (/2,CLOUDSAT_DBZE_BINS/))     
     real(wp),parameter,dimension(CLOUDSAT_DBZE_BINS) :: &
          cloudsat_binCenters = (cloudsat_binEdges(1,:)+cloudsat_binEdges(2,:))/2._wp
-    
+
     ! Parameters for Cloudsat near-surface precipitation diagnostics.
     ! Precipitation classes.
     integer, parameter :: &
@@ -313,7 +314,54 @@ MODULE MOD_COSP_CONFIG
     ! Level 39 of Nlvgrid(40) is 480-960m.
     integer, parameter :: &
          cloudsat_preclvl = 39
-    
+
+    ! ####################################################################################
+    ! CLOUDSAT and MODIS joint product information (2018.11.22)
+    ! ####################################################################################
+    ! @ COSP_DIAG_WARMRAIN:
+    integer, parameter :: CFODD_NCLASS  =    3 ! # of classes for CFODD (classified by MODIS Reff)
+    integer, parameter :: WR_NREGIME    =    3 ! # of warm-rain regimes (non-precip/drizzling/raining)
+    integer, parameter :: SGCLD_CLR     =    0 ! sub-grid cloud ID (fracout): clear-sky
+    integer, parameter :: SGCLD_ST      =    1 ! sub-grid cloud ID (fracout): stratiform
+    integer, parameter :: SGCLD_CUM     =    2 ! sub-grid cloud ID (fracout): cumulus
+    real(wp),parameter :: CWP_THRESHOLD = 0.00 ! cloud water path threshold
+    real(wp),parameter :: COT_THRESHOLD = 0.30 ! cloud optical thickness threshold
+    real(wp),parameter,dimension(CFODD_NCLASS+1) :: &
+         CFODD_BNDRE = (/5.0e-6, 12.0e-6, 18.0e-6, 35.0e-6/) ! Reff bnds
+    real(wp),parameter,dimension(2) :: &
+         CFODD_BNDZE = (/-15.0, 0.0/)                        ! dBZe bnds (cloud/drizzle/precip)
+    real(wp),parameter :: CFODD_DBZE_MIN    =  -30.0 ! Minimum value of CFODD dBZe bin
+    real(wp),parameter :: CFODD_DBZE_MAX    =   20.0 ! Maximum value of CFODD dBZe bin
+    real(wp),parameter :: CFODD_ICOD_MIN    =    0.0 ! Minimum value of CFODD ICOD bin
+    real(wp),parameter :: CFODD_ICOD_MAX    =   60.0 ! Maximum value of CFODD ICOD bin
+    real(wp),parameter :: CFODD_DBZE_WIDTH  =    2.0 ! Bin width (dBZe)
+    real(wp),parameter :: CFODD_ICOD_WIDTH  =    2.0 ! Bin width (ICOD)
+    integer, parameter :: NOBSTYPE      =    3 ! # of obstype (all/clear/cloudy)
+    integer,parameter :: &
+         CFODD_NDBZE = INT( (CFODD_DBZE_MAX-CFODD_DBZE_MIN)/CFODD_DBZE_WIDTH ) ! Number of CFODD dBZe bins
+    integer,parameter :: &
+         CFODD_NICOD = INT( (CFODD_ICOD_MAX-CFODD_ICOD_MIN)/CFODD_ICOD_WIDTH ) ! Number of CFODD ICOD bins
+    real(wp),parameter,dimension(CFODD_NDBZE+1) :: &
+         CFODD_HISTDBZE = (/int(CFODD_DBZE_MIN),(/(i, i=int(CFODD_DBZE_MIN+CFODD_DBZE_WIDTH), &
+                           int(CFODD_DBZE_MIN+(CFODD_NDBZE-1)*CFODD_DBZE_WIDTH),              &
+                           int(CFODD_DBZE_WIDTH))/),int(CFODD_DBZE_MAX)/)
+    real(wp),parameter,dimension(CFODD_NICOD+1) :: &
+         CFODD_HISTICOD = (/int(CFODD_ICOD_MIN),(/(i, i=int(CFODD_ICOD_MIN+CFODD_ICOD_WIDTH), &
+                           int(CFODD_ICOD_MIN+(CFODD_NICOD-1)*CFODD_ICOD_WIDTH),              &
+                           int(CFODD_ICOD_WIDTH))/),int(CFODD_ICOD_MAX)/)
+    real(wp),parameter,dimension(2,CFODD_NDBZE) :: &
+         CFODD_HISTDBZEedges = reshape(source=(/CFODD_HISTDBZE(1),((CFODD_HISTDBZE(k),    &
+                                 l=1,2),k=2,CFODD_NDBZE),CFODD_HISTDBZE(CFODD_NDBZE+1)/), &
+                                 shape = (/2,CFODD_NDBZE/))
+    real(wp),parameter,dimension(CFODD_NDBZE) :: &
+         CFODD_HISTDBZEcenters = (CFODD_HISTDBZEedges(1,:)+CFODD_HISTDBZEedges(2,:))/2._wp
+    real(wp),parameter,dimension(2,CFODD_NICOD) :: &
+         CFODD_HISTICODedges = reshape(source=(/CFODD_HISTICOD(1),((CFODD_HISTICOD(k),    &
+                                 l=1,2),k=2,CFODD_NICOD),CFODD_HISTICOD(CFODD_NICOD+1)/), &
+                                 shape = (/2,CFODD_NICOD/))
+    real(wp),parameter,dimension(CFODD_NICOD) :: &
+         CFODD_HISTICODcenters = (CFODD_HISTICODedges(1,:)+CFODD_HISTICODedges(2,:))/2._wp
+
     ! ####################################################################################
     ! Parameters used by the CALIPSO LIDAR simulator
     ! #################################################################################### 
@@ -404,6 +452,7 @@ MODULE MOD_COSP_CONFIG
     real(wp),dimension(:),allocatable :: &
        vgrid_zl,  & ! New grid bottoms
        vgrid_zu,  & ! New grid tops
-       vgrid_z      ! New grid center
+       vgrid_z,   & ! New grid center
+       dz           ! dZ
 
 END MODULE MOD_COSP_CONFIG
