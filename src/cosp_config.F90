@@ -337,10 +337,15 @@ MODULE MOD_COSP_CONFIG
     real(wp),parameter :: CFODD_DBZE_WIDTH  =    2.0 ! Bin width (dBZe)
     real(wp),parameter :: CFODD_ICOD_WIDTH  =    2.0 ! Bin width (ICOD)
     integer, parameter :: NOBSTYPE      =    3 ! # of obstype (all/clear/cloudy)
+    real(wp),parameter :: SLWC_COT_MIN = 0.0         ! Minimum value of SLWC COT bin
+    real(wp),parameter :: SLWC_COT_MAX = 100.0       ! Maximum value of SLWC COT bin
+    real(wp),parameter :: SLWC_COT_WIDTH = 2.0       ! Bin width (COT)
     integer,parameter :: &
          CFODD_NDBZE = INT( (CFODD_DBZE_MAX-CFODD_DBZE_MIN)/CFODD_DBZE_WIDTH ) ! Number of CFODD dBZe bins
     integer,parameter :: &
          CFODD_NICOD = INT( (CFODD_ICOD_MAX-CFODD_ICOD_MIN)/CFODD_ICOD_WIDTH ) ! Number of CFODD ICOD bins
+    integer,parameter :: &
+         SLWC_NCOT = INT( (SLWC_COT_MAX-SLWC_COT_MIN)/SLWC_COT_WIDTH         ) ! Number of SLWC COT bins
     real(wp),parameter,dimension(CFODD_NDBZE+1) :: &
          CFODD_HISTDBZE = (/int(CFODD_DBZE_MIN),(/(i, i=int(CFODD_DBZE_MIN+CFODD_DBZE_WIDTH), &
                            int(CFODD_DBZE_MIN+(CFODD_NDBZE-1)*CFODD_DBZE_WIDTH),              &
@@ -361,6 +366,16 @@ MODULE MOD_COSP_CONFIG
                                  shape = (/2,CFODD_NICOD/))
     real(wp),parameter,dimension(CFODD_NICOD) :: &
          CFODD_HISTICODcenters = (CFODD_HISTICODedges(1,:)+CFODD_HISTICODedges(2,:))/2._wp
+    real(wp),parameter,dimension(SLWC_NCOT+1) :: &
+         SLWC_HISTCOT = (/int(SLWC_COT_MIN),(/(i, i=int(SLWC_COT_MIN+SLWC_COT_WIDTH),     &
+                         int(SLWC_COT_MIN+(SLWC_NCOT-1)*SLWC_COT_WIDTH),                  &
+                         int(SLWC_COT_WIDTH))/),int(SLWC_COT_MAX)/)
+    real(wp),parameter,dimension(2,SLWC_NCOT) :: &
+         SLWC_HISTCOTedges = reshape(source=(/SLWC_HISTCOT(1),((SLWC_HISTCOT(k),l=1,2),   &
+                             k=2, SLWC_NCOT),SLWC_HISTCOT(SLWC_NCOT+1)/),                 &
+                             shape = (/2,SLWC_NCOT/))
+    real(wp),parameter,dimension(SLWC_NCOT) :: &
+        SLWC_HISTCOTcenters = (SLWC_HISTCOTedges(1,:)+SLWC_HISTCOTedges(2,:))/2._wp
 
     ! ####################################################################################
     ! Parameters used by the CALIPSO LIDAR simulator

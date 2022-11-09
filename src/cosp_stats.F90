@@ -52,7 +52,10 @@ MODULE MOD_COSP_STATS
             CFODD_ICOD_MIN,   CFODD_ICOD_MAX,   &
             CFODD_DBZE_WIDTH, CFODD_ICOD_WIDTH, &
             CFODD_HISTDBZE,   CFODD_HISTICOD,   &
-            WR_NREGIME, NOBSTYPE
+            WR_NREGIME, NOBSTYPE,               &
+            SLWC_NCOT,                          &
+            SLWC_COT_MAX, SLWC_HISTCOT          
+            
   USE COSP_PHYS_CONSTANTS,  ONLY: tmelt
 
   IMPLICIT NONE
@@ -290,8 +293,9 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
                                  fracout, dbze,                        & !! in
                                  cfodd_ntotal,                         & !! inout
                                  wr_occfreq_ntotal,                    & !! inout
-                                 lsmallcot, mice, lsmallreff,          &
-                                 lbigreff, obs_ntotal ) !! inout
+                                 lsmallcot, mice, lsmallreff,          & !! inout
+                                 lbigreff, nmultilcld, nhetcld, coldct,& !! inout
+                                 obs_ntotal, slwccot_ntotal )            !! inout
 
     ! Inputs
     integer, intent(in) :: &
@@ -324,9 +328,13 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
     real(wp),dimension(Npoints),intent(inout) :: &
          lsmallcot,         & ! # of liquid clouds that don't meet COT condition
          mice,              & ! # of ice clouds
-         lsmallreff,        & ! # of liquid clouds that have too small reff to meet SLWP conditions
-         lbigreff            ! # of liquid clouds that have too big reff to meet SLWP conditions
+         lsmallreff,        & ! # of liquid clouds that have too small reff to meet SLWC conditions
+         lbigreff,          & ! # of liquid clouds that have too big reff to meet SLWC conditions
+         nmultilcld,        & ! # of multilayer cloud subcolumns, excluded from SLWC counts
+         nhetcld,           & ! # of heterogenous clouds (stratocumulus above/below cumulus) in continuous layer
+         coldct               ! # of subcolumns with cloud top temp < 273 K
      real(wp),dimension(Npoints,NOBSTYPE),intent(inout) :: obs_ntotal     ! # of Observations
+     real(wp),dimension(Npoints,SLWC_NCOT),intent(inout) :: slwccot_ntotal     ! # of MODIS liquid COT samples for SLWCs only @ each ICOD bin
 
 
     ! Local variables
@@ -341,9 +349,10 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
     real(wp) :: diagicod  !! diagnosed in-cloud optical depth
     real(wp) :: cbtmh     !! diagnosed in-cloud optical depth
     real(wp), dimension(Npoints,Ncolumns,Nlevels) :: icod  !! in-cloud optical depth (ICOD)
-    logical  :: octop, ocbtm, oslwc
+    logical  :: octop, ocbtm, oslwc, multilcld, hetcld
     integer, dimension(Npoints,Ncolumns,Nlevels) :: fracout_int  !! fracout (decimal to integer)
     integer  :: obstype   !! 1 = all-sky; 2 = clear-sky; 3 = cloudy-sky
+    real(wp),dimension(Npoints,Ncolumns) :: slwccot     ! MODIS liquid COT for SLWCs only
 
     fracout_int(:,:,:) = NINT( fracout(:,:,:) )  !! assign an iSnteger subpixcel ID (0=clear-sky; 1=St; 2=Cu)
 
@@ -358,21 +367,32 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           lsmallreff(i) = R_UNDEF
           lbigreff(i) = R_UNDEF
           obs_ntotal(i,:) = R_UNDEF
+          nhetcld(i) = R_UNDEF
+          nmultilcld(i) = R_UNDEF
+          coldct(i) = R_UNDEF
+          slwccot(i,:) = R_UNDEF
+          slwccot_ntotal(i,:) = R_UNDEF
        else
           cfodd_ntotal(i,:,:,:)  = 0._wp
           wr_occfreq_ntotal(i,:) = 0._wp
           icod(i,:,:) = 0._wp
-          lsmallcot(:) = 0._wp
-          mice(:) = 0._wp
-          lsmallreff(:) = 0._wp
-          lbigreff(:) = 0._wp
+          lsmallcot(i) = 0._wp
+          mice(i) = 0._wp
+          lsmallreff(i) = 0._wp
+          lbigreff(i) = 0._wp
           obs_ntotal(i,:) = 0._wp
+          nhetcld(i) = 0._wp
+          nmultilcld(i) = 0._wp
+          coldct(i) = 0._wp
+          slwccot(i,:) = 0._wp
+          slwccot_ntotal(i,:) = 0._wp
        endif
     enddo
 
     do i = 1, Npoints
         !! Total Sampling Frequency
        do j = 1, Ncolumns, 1
+          if( lwp(i).eq.R_UNDEF ) cycle ! remove non-sunlit columns
           obs_ntotal(i,1) = obs_ntotal(i,1) + 1._wp  ! all-sky (# of all samples)
           obstype = 2                      ! initial flag (2 = clear sky)
           !CDIR NOLOOPCHG
@@ -434,8 +454,13 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           enddo  !! k loop
           if( ocbtm )  cycle  !! cloud wasn't detected in this subcolumn
           !! check SLWC?
+          if( temp(i,1,kctop) .lt. tmelt ) then
+              coldct(i) = coldct(i) + 1._wp 
+          endif
           if( temp(i,1,kctop) .lt. tmelt ) cycle  !! return to the j (subcolumn) loop
           oslwc = .true.
+          hetcld = .false.
+          multilcld = .false.
           cmxdbz = CFODD_DBZE_MIN  !! initialized
 
           !CDIR NOLOOPCHG
@@ -446,7 +471,24 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
                 & dbze       (i,j,k) .lt. CFODD_DBZE_MIN   ) then
                 oslwc = .false.
              endif
+             if ( fracout_int(i,j,k) .eq. SGCLD_CLR .or.   &
+                & dbze       (i,j,k) .lt. CFODD_DBZE_MIN   ) then
+                multilcld = .true.
+             endif
+             if ( fracout_int(i,j,k) .eq. SGCLD_CUM .and.  &
+                & .not. multilcld ) then
+                hetcld = .true.
+            endif
           enddo
+          
+          if ( multilcld ) then
+             nmultilcld(i) = nmultilcld(i) + 1._wp
+          endif
+          
+          if ( hetcld ) then
+             nhetcld(i) = nhetcld(i) + 1._wp
+          endif
+          
           if ( .not. oslwc ) cycle  !! return to the j (subcolumn) loop
 
           !! warm-rain occurrence frequency
@@ -467,6 +509,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           do k = kcbtm, kctop, -1
              if( k .eq. kcbtm ) then
                 diagicod = liqcot(i)
+                slwccot(i,j) = min( liqcot(i), SLWC_COT_MAX )
              else
                 diagicod = liqcot(i) * ( 1._wp - ( (zlev(i,k)-cbtmh)/diagcgt)**(5._wp/3._wp) )
              endif
@@ -480,12 +523,15 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
                   & Ncolumns*Nlevels,                                           &
                   & CFODD_HISTDBZE, CFODD_NDBZE, CFODD_HISTICOD, CFODD_NICOD,   &
                   & cfodd_ntotal( i, 1:CFODD_NDBZE, 1:CFODD_NICOD, icls )       )
+    
+       slwccot_ntotal(i, 1:SLWC_NCOT) = hist1d( Ncolumns,                     &
+                     slwccot(i,1:Ncolumns), SLWC_NCOT, SLWC_HISTCOT         )
 
     enddo     ! i (Npoints)
     
     !! CMB adding counts of other cloud types to assess frequency of single-layer warm phase clouds
     do i = 1, Npoints
-             if ( lwp(i)     .gt.  CWP_THRESHOLD  .and.  &
+             if ( ( lwp(i)     .gt.  CWP_THRESHOLD  .and. lwp(i) .ne. R_UNDEF ) .and. &
                 & liqcot(i)  .le.  COT_THRESHOLD  .and.  &
                 & iwp(i)     .le.  CWP_THRESHOLD  .and.  &
                 & icecot(i)  .le.  COT_THRESHOLD  .and.  &
@@ -500,7 +546,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
                 mice(i) = mice(i) + 1._wp
              endif
              
-             if ( lwp(i)     .gt. CWP_THRESHOLD   .and. &
+             if ( ( lwp(i)     .gt. CWP_THRESHOLD   .and. lwp(i) .ne. R_UNDEF ) .and. &
                 & liqcot(i)  .gt. COT_THRESHOLD   .and. &
                 & liqreff(i) .lt. CFODD_BNDRE(1)  .and. &
                 & iwp(i)     .le.  CWP_THRESHOLD  .and. &
@@ -509,7 +555,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
                 lsmallreff(i) = lsmallreff(i) + 1._wp
              endif
          
-             if ( lwp(i)     .gt. CWP_THRESHOLD   .and. &
+             if ( ( lwp(i)     .gt. CWP_THRESHOLD   .and. lwp(i) .ne. R_UNDEF ) .and. &
                 & liqcot(i)  .gt. COT_THRESHOLD   .and. &
                 & liqreff(i) .gt. CFODD_BNDRE(4)  .and. & 
                 & iwp(i)     .le.  CWP_THRESHOLD  .and. &
