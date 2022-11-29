@@ -531,7 +531,8 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
     
     !! CMB adding counts of other cloud types to assess frequency of single-layer warm phase clouds
     do i = 1, Npoints
-             if ( ( lwp(i)     .gt.  CWP_THRESHOLD  .and. lwp(i) .ne. R_UNDEF ) .and. &
+       if (lwp(i) .eq. R_UNDEF) cycle !remove non-sunlit columns
+             if ( lwp(i)     .gt.  CWP_THRESHOLD .and. &
                 & liqcot(i)  .le.  COT_THRESHOLD  .and.  &
                 & iwp(i)     .le.  CWP_THRESHOLD  .and.  &
                 & icecot(i)  .le.  COT_THRESHOLD  .and.  &
@@ -546,7 +547,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
                 mice(i) = mice(i) + 1._wp
              endif
              
-             if ( ( lwp(i)     .gt. CWP_THRESHOLD   .and. lwp(i) .ne. R_UNDEF ) .and. &
+             if ( lwp(i)     .gt. CWP_THRESHOLD .and. &
                 & liqcot(i)  .gt. COT_THRESHOLD   .and. &
                 & liqreff(i) .lt. CFODD_BNDRE(1)  .and. &
                 & iwp(i)     .le.  CWP_THRESHOLD  .and. &
@@ -555,7 +556,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
                 lsmallreff(i) = lsmallreff(i) + 1._wp
              endif
          
-             if ( ( lwp(i)     .gt. CWP_THRESHOLD   .and. lwp(i) .ne. R_UNDEF ) .and. &
+             if ( lwp(i)     .gt. CWP_THRESHOLD   .and. &
                 & liqcot(i)  .gt. COT_THRESHOLD   .and. &
                 & liqreff(i) .gt. CFODD_BNDRE(4)  .and. & 
                 & iwp(i)     .le.  CWP_THRESHOLD  .and. &
