@@ -408,7 +408,8 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
        enddo !Ncolumns
 
        !! check by MODIS retrieval
-       if ( ( lwp(i)   .le.  CWP_THRESHOLD  .and. lwp(i) .ne. R_UNDEF  ) .or.  &
+       if ( lwp(i)     .eq.  R_UNDEF        .or.  &       !! exclude non-sunlit
+          & lwp(i)     .le.  CWP_THRESHOLD  .or.  &
           & liqcot(i)  .le.  COT_THRESHOLD  .or.  &
           & liqreff(i) .lt.  CFODD_BNDRE(1) .or.  &
           & liqreff(i) .gt.  CFODD_BNDRE(4) .or.  &
@@ -547,6 +548,11 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
                 mice(i) = mice(i) + 1._wp
              endif
              
+             if (i .eq. 3614) then
+                print*, "i=3614 mice: ", mice(i)
+                print*, "i=3614 lwp: ", lwp(i)
+             endif
+             
              if ( lwp(i)     .gt. CWP_THRESHOLD .and. &
                 & liqcot(i)  .gt. COT_THRESHOLD   .and. &
                 & liqreff(i) .lt. CFODD_BNDRE(1)  .and. &
@@ -566,7 +572,10 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
              endif
               
     enddo !i (Npoints)
-    
+  print*,"mice[3616]: ", mice(3616)
+  print*, "lwp[3616]: ", lwp(3616)
+  print*,"mice[3617]: ", mice(3617)
+  print*,"lwp[3617]: ", lwp(3617)  
   RETURN
   END SUBROUTINE COSP_DIAG_WARMRAIN
 
