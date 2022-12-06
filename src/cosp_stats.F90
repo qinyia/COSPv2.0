@@ -334,7 +334,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
          nhetcld,           & ! # of heterogenous clouds (stratocumulus above/below cumulus) in continuous layer
          coldct               ! # of subcolumns with cloud top temp < 273 K
      real(wp),dimension(Npoints,NOBSTYPE),intent(inout) :: obs_ntotal     ! # of Observations
-     real(wp),dimension(Npoints,SLWC_NCOT),intent(inout) :: slwccot_ntotal     ! # of MODIS liquid COT samples for SLWCs only @ each ICOD bin
+     real(wp),dimension(Npoints,SLWC_NCOT,CFODD_NCLASS),intent(inout) :: slwccot_ntotal     ! # of MODIS liquid COT samples for SLWCs only @ each ICOD bin
 
 
     ! Local variables
@@ -371,7 +371,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           nmultilcld(i) = R_UNDEF
           coldct(i) = R_UNDEF
           slwccot(i,:) = R_UNDEF
-          slwccot_ntotal(i,:) = R_UNDEF
+          slwccot_ntotal(i,:,:) = R_UNDEF
        else
           cfodd_ntotal(i,:,:,:)  = 0._wp
           wr_occfreq_ntotal(i,:) = 0._wp
@@ -385,7 +385,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           nmultilcld(i) = 0._wp
           coldct(i) = 0._wp
           slwccot(i,:) = 0._wp
-          slwccot_ntotal(i,:) = 0._wp
+          slwccot_ntotal(i,:,:) = 0._wp
        endif
     enddo
 
@@ -525,7 +525,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
                   & CFODD_HISTDBZE, CFODD_NDBZE, CFODD_HISTICOD, CFODD_NICOD,   &
                   & cfodd_ntotal( i, 1:CFODD_NDBZE, 1:CFODD_NICOD, icls )       )
     
-       slwccot_ntotal(i, 1:SLWC_NCOT) = hist1d( Ncolumns,                     &
+       slwccot_ntotal(i, 1:SLWC_NCOT, icls) = hist1d( Ncolumns,                     &
                      slwccot(i,1:Ncolumns), SLWC_NCOT, SLWC_HISTCOT         )
 
     enddo     ! i (Npoints)
