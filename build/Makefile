@@ -78,7 +78,7 @@ cosp.o : cosp_kinds.o cosp_modis_interface.o cosp_constants.o  cosp_rttov_interf
 cosp_constants.o            : cosp_kinds.o
 cosp_config.o               : cosp_kinds.o
 cosp_errorHandling.o        : cosp_kinds.o
-cosp_stats.o                : cosp_kinds.o cosp_config.o
+cosp_stats.o                : cosp_kinds.o cosp_config.o cosp_constants.o
 cosp_isccp_interface.o      : cosp_kinds.o icarus.o
 icarus.o	            : cosp_kinds.o cosp_constants.o  cosp_stats.o
 cosp_misr_interface.o       : cosp_kinds.o
