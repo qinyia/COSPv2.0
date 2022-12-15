@@ -287,7 +287,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
   !               E-mail: michibata@riam.kyushu-u.ac.jp
   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
   SUBROUTINE COSP_DIAG_WARMRAIN( Npoints, Ncolumns, Nlevels,           & !! in
-                                 temp,    zlev,                        & !! in
+                                 temp,    zlev, sunlit,                & !! in
                                  lwp,     liqcot,   liqreff, liqcfrc,  & !! in
                                  iwp,     icecot,   icereff, icecfrc,  & !! in
                                  fracout, dbze,                        & !! in
@@ -307,11 +307,14 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
          Npoints,          & ! Number of horizontal gridpoints
          Ncolumns,         & ! Number of subcolumns
          Nlevels             ! Number of vertical layers
+    integer, dimension(Npoints), intent(in) ::  &
+         sunlit              ! cospgridIN%sunlit
     real(wp), dimension(Npoints), intent(in) :: &
          lwp,              & ! MODIS LWP [kg m-2]
          liqcot,           & ! MODIS liq. COT
          liqreff,          & ! MODIS liq. Reff [m]
          liqcfrc             ! MODIS liq. cloud fraction
+!         sunlit              ! cospgridIN%sunlit
     real(wp), dimension(Npoints), intent(in) :: &
          iwp,              & ! MODIS IWP [kg m-2]
          icecot,           & ! MODIS ice COT
@@ -370,7 +373,8 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
 
     !! initialize
     do i = 1, Npoints
-       if ( lwp(i) .eq. R_UNDEF ) then  ! for non-sunlit columns
+!       if ( lwp(i) .eq. R_UNDEF ) then  ! for non-sunlit columns
+       if ( sunlit(i) .le. 0 ) then  ! for non-sunlit columns
           cfodd_ntotal(i,:,:,:) = R_UNDEF
           wr_occfreq_ntotal(i,:) = R_UNDEF
           icod(i,:,:) = R_UNDEF
@@ -406,7 +410,8 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
     do i = 1, Npoints
         !! Total Sampling Frequency
        do j = 1, Ncolumns, 1
-          if( lwp(i).eq.R_UNDEF ) cycle ! remove non-sunlit columns
+!          if( lwp(i).eq.R_UNDEF ) cycle ! remove non-sunlit columns
+          if ( sunlit(i) .le. 0 ) cycle ! remove non-sunlit columns
           obs_ntotal(i,1) = obs_ntotal(i,1) + 1._wp  ! all-sky (# of all samples)
           obstype = 2                      ! initial flag (2 = clear sky)
           !CDIR NOLOOPCHG
@@ -422,7 +427,8 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
        enddo !Ncolumns
 
        !! check by MODIS retrieval
-       if ( lwp(i)     .eq.  R_UNDEF        .or.  &       !! exclude non-sunlit
+!       if ( lwp(i)     .eq.  R_UNDEF        .or.  &       !! exclude non-sunlit
+       if ( sunlit(i)  .le.  0              .or.  &       !! exclude non-sunlit
           & lwp(i)     .le.  CWP_THRESHOLD  .or.  &
           & liqcot(i)  .le.  COT_THRESHOLD  .or.  &
           & liqreff(i) .lt.  CFODD_BNDRE(1) .or.  &
@@ -550,7 +556,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
     ! the following CALIPSO/CloudSat analysis of SLWCs to avoid double-counting. The  subcolumn logic is
     ! based on CloudSat dBZe, and is the same whether considering MODIS/CloudSat or CALIPSO/CloudSat
     do i  = 1, Npoints
-        if( lwp(i) .eq. R_UNDEF .or.  & ! remove non-sunlit columns for consistency with MODIS detection of SLWCs 
+        if( sunlit(i) .le. 0 .or.  & ! remove non-sunlit columns for consistency with MODIS detection of SLWCs 
             sum(wr_occfreq_ntotal(i,1:WR_NREGIME)) .gt. 0.0_wp .or. & !exclude columns where MODIS detected SLWCs already
             iwp(i)     .gt.  CWP_THRESHOLD  .or.  &       !! exclude columns with ice clouds detected by MODIS
             icecot(i)  .gt.  COT_THRESHOLD  .or.  &       !! exclude columns ice clouds detected by MODIS
@@ -597,8 +603,8 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           enddo  !! k loop
           if( ocbtm )  cycle  !! cloud wasn't detected in this subcolumn
           !! check SLWC?
-          if( temp(i,1,kctop) .lt. tmelt .and. .not. modis_cond(i)) then
-              coldct(i) = coldct(i) + 1._wp 
+          if( temp(i,1,kctop) .lt. tmelt .and. modis_cond(i) ) then !if the sample did not meet LWP, liquid COT Reff thresholds for MODIS detection
+              coldct(i) = coldct(i) + 1._wp                         !meaning it was not detected by MODIS, but was by CALIPSO, add it to cold ct count
           endif
           if( temp(i,1,kctop) .lt. tmelt ) cycle  !! return to the j (subcolumn) loop
           oslwc = .true.
@@ -624,11 +630,11 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
             endif
           enddo
           
-          if ( multilcld .and. .not. modis_cond(i)) then
+          if ( multilcld .and. modis_cond(i)) then
              nmultilcld(i) = nmultilcld(i) + 1._wp
           endif
           
-          if ( hetcld .and. .not. modis_cond(i) ) then
+          if ( hetcld .and. modis_cond(i) ) then
              nhetcld(i) = nhetcld(i) + 1._wp
           endif
           
@@ -676,8 +682,16 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
         
        
     !! CMB adding counts of other cloud types to assess frequency of single-layer warm phase clouds
+  !print*,"L534 (prior to do-loop) mice[3616]: ", mice(3616)
+  !print*, "L534 iwp[3616]: ", iwp(3616)
+  !print*, "L534 lwp[3616]: ", lwp(3616)
+  !print*,"L534 mice[3617]: ", mice(3617)
+  !print*,"L534 iwp[3617]: ", iwp(3617) 
+  !print*,"L534 lwp[3617]: ", lwp(3617) 
+
     do i = 1, Npoints
-       if (lwp(i) .eq. R_UNDEF) cycle !remove non-sunlit columns
+!       if (lwp(i) .eq. R_UNDEF) cycle !remove non-sunlit columns
+       if (sunlit(i) .le. 0 ) cycle !remove non-sunlit columns
              if ( lwp(i)     .gt.  CWP_THRESHOLD .and. &
                 & liqcot(i)  .le.  COT_THRESHOLD  .and.  &
                 & iwp(i)     .le.  CWP_THRESHOLD  .and.  &
@@ -692,7 +706,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
                 & icereff(i) .gt. CFODD_BNDRE(1)        ) then !meets ice condition
                 mice(i) = mice(i) + 1._wp
              endif
-                       
+
              if ( lwp(i)     .gt. CWP_THRESHOLD .and. &
                 & liqcot(i)  .gt. COT_THRESHOLD   .and. &
                 & liqreff(i) .lt. CFODD_BNDRE(1)  .and. &
@@ -712,6 +726,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
              endif
               
     enddo !i (Npoints)
+
   RETURN
   END SUBROUTINE COSP_DIAG_WARMRAIN
 
