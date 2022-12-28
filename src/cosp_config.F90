@@ -320,7 +320,8 @@ MODULE MOD_COSP_CONFIG
     ! ####################################################################################
     ! @ COSP_DIAG_WARMRAIN:
     integer, parameter :: CFODD_NCLASS  =    4 ! # of classes for CFODD (classified by MODIS Reff + 1 unclassified)
-    integer, parameter :: WR_NREGIME    =    3 ! # of warm-rain regimes (non-precip/drizzling/raining)
+    integer, parameter :: WR_NREGIME    =    6 ! # of warm-rain regimes (1 non-precip/ 2 drizzling/ 3 raining - MODIS, 
+                                               ! 4 non-precip/ 5 drizzling/ 6 raining - CALIPSO, not detected by MODISs
     integer, parameter :: SGCLD_CLR     =    0 ! sub-grid cloud ID (fracout): clear-sky
     integer, parameter :: SGCLD_ST      =    1 ! sub-grid cloud ID (fracout): stratiform
     integer, parameter :: SGCLD_CUM     =    2 ! sub-grid cloud ID (fracout): cumulus

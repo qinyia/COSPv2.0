@@ -362,7 +362,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
     real(wp) :: diagicod  !! diagnosed in-cloud optical depth
     real(wp) :: cbtmh     !! diagnosed in-cloud optical depth
     real(wp), dimension(Npoints,Ncolumns,Nlevels) :: icod  !! in-cloud optical depth (ICOD)
-    logical  :: octop, ocbtm, oslwc, multilcld, hetcld
+    logical  :: octop, ocbtm, oslwc, multilcld, hetcld, modis_ice
     integer, dimension(Npoints,Ncolumns,Nlevels) :: fracout_int  !! fracout (decimal to integer)
     integer  :: obstype   !! 1 = all-sky; 2 = clear-sky; 3 = cloudy-sky
     real(wp),dimension(Npoints,Ncolumns) :: slwccot     ! MODIS liquid COT for SLWCs only
@@ -555,13 +555,23 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
     ! In other words, if MODIS detected an SLWC anywhere in the column, this column will be excluded from 
     ! the following CALIPSO/CloudSat analysis of SLWCs to avoid double-counting. The  subcolumn logic is
     ! based on CloudSat dBZe, and is the same whether considering MODIS/CloudSat or CALIPSO/CloudSat
+    print*,"sum wr_occfreq_ntotal(229,1:3): ", sum(wr_occfreq_ntotal(229,1:WR_NREGIME))
+    print*,"maxval tautot_liq(229,1,:) :", MAXVAL(tautot_liq(229,1,1:Nlevels))
+    print*,"tautot_liq(229,1,36): ", tautot_liq(229,1,36)
+    print*,"maxval tautot_ice(229,1,:): ", MAXVAL(tautot_ice(229,1,1:Nlevels))
     do i  = 1, Npoints
+        modis_ice = .false.
         if( sunlit(i) .le. 0 .or.  & ! remove non-sunlit columns for consistency with MODIS detection of SLWCs 
-            sum(wr_occfreq_ntotal(i,1:WR_NREGIME)) .gt. 0.0_wp .or. & !exclude columns where MODIS detected SLWCs already
-            iwp(i)     .gt.  CWP_THRESHOLD  .or.  &       !! exclude columns with ice clouds detected by MODIS
+            sum(wr_occfreq_ntotal(i,1:WR_NREGIME)) .ge. 1.0_wp ) cycle !.or. & !exclude columns where MODIS detected SLWCs already
+           ! iwp(i)     .gt.  CWP_THRESHOLD  .or.  &       !! exclude columns with ice clouds detected by MODIS
+           ! icecot(i)  .gt.  COT_THRESHOLD  .or.  &       !! exclude columns ice clouds detected by MODIS
+           ! icereff(i) .gt.  CFODD_BNDRE(1)       ) cycle !! exclude coulmns with ice clouds detected by MODIS
+
+        if( iwp(i)     .gt.  CWP_THRESHOLD  .or.  &       !! exclude columns with ice clouds detected by MODIS
             icecot(i)  .gt.  COT_THRESHOLD  .or.  &       !! exclude columns ice clouds detected by MODIS
-            icereff(i) .gt.  CFODD_BNDRE(1)       ) cycle !! exclude coulmns with ice clouds detected by MODIS
-                                       
+            icereff(i) .gt.  CFODD_BNDRE(1)       ) then  !! exclude coulmns with ice clouds detected by MODIS
+            modis_ice = .true.                           
+        endif
 !        if( sum(lidarcldphase(i,1:Nlevels,1)) .gt. 0.0_wp )
 !           calice(i) = calice(i) + 1._wp
 !           cycle
@@ -575,14 +585,17 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           ocbtm = .true.  !! initialize
           kcbtm =     0   !! initialize
           kctop =     0   !! initialize
-          if ( sum(tautot_ice(i,j,1:Nlevels)) .gt. 0.0_wp ) then !exclude if Calipso detected ice
+          if ( MAXVAL(tautot_ice(i,j,1:Nlevels)) .gt. COT_THRESHOLD & 
+               .and. .not. modis_ice ) then !exclude if Calipso detected ice
              calice(i) = calice(i) + 1._wp
           endif
 
-          if ( sum(tautot_ice(i,j,1:Nlevels)) .gt. 0.0_wp ) cycle !exclude if Calipso detected ice
-          
-          if ( sum(tautot_liq(i,j,1:Nlevels)) .le. 0.0_wp ) cycle !exclude subcolumn if clearsky
+          ! print*,"max calipso ice tau over levels: ", MAXVAL(tautot_ice(i,j,1:Nlevels))
+          if ( MAXVAL(tautot_ice(i,j,1:Nlevels)) .gt. COT_THRESHOLD ) cycle !exclude if Calipso detected ice
 
+          if ( MAXVAL(tautot_liq(i,j,1:Nlevels)) .le. COT_THRESHOLD ) cycle !exclude subcolumn if clearsky
+          ! print*,"max calipso liq tau over levels: ", MAXVAL(tautot_liq(i,j,1:Nlevels))
+         
           !CDIR NOLOOPCHG
           do k = Nlevels, 1, -1  !! scan from cloud-bottom to cloud-top
              if ( dbze(i,j,k) .eq. R_GROUND .or. &
@@ -601,10 +614,19 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
                 kctop = k  !! update
              endif
           enddo  !! k loop
+          if ( (i .eq. 229) .and. (j .eq. 1) )then
+             print*,"kcbtm level at i = 229,j = 1: ", kcbtm
+             print*,"kctop level at i = 229, j = 1: ", kctop
+             print*, "temp at i = 229, j=1, lev = 36: ", temp(i,j,36)
+             print*, "calice at i=229: ", calice(229)
+          endif
+
           if( ocbtm )  cycle  !! cloud wasn't detected in this subcolumn
           !! check SLWC?
-          if( temp(i,1,kctop) .lt. tmelt .and. modis_cond(i) ) then !if the sample did not meet LWP, liquid COT Reff thresholds for MODIS detection
+          if( temp(i,1,kctop) .lt. tmelt .and. modis_cond(i) .and. &
+              MAXVAL(tautot_ice(i,j,1:Nlevels)) .le. COT_THRESHOLD ) then !if the sample did not meet LWP, liquid COT Reff thresholds for MODIS detection
               coldct(i) = coldct(i) + 1._wp                         !meaning it was not detected by MODIS, but was by CALIPSO, add it to cold ct count
+              !print*, "got a cold cloud top from CALIPSO"
           endif
           if( temp(i,1,kctop) .lt. tmelt ) cycle  !! return to the j (subcolumn) loop
           oslwc = .true.
@@ -630,7 +652,13 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
             endif
           enddo
           
-          if ( multilcld .and. modis_cond(i)) then
+          if ((i .eq. 229) .and. (j .eq. 1)) then
+             print*,"oslwc condition at i =229, j=1: ", oslwc
+             print*, "dbze(229,1,kcbtm:kctop): ", dbze(229,1,kcbtm:kctop)
+             print*, "fracout_int(229,1,kcbtm:kctop): ", fracout_int(229,1,kcbtm:kctop)
+          endif
+
+          if ( multilcld .and. modis_cond(i) ) then
              nmultilcld(i) = nmultilcld(i) + 1._wp
           endif
           
@@ -643,12 +671,15 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           !! warm-rain occurrence frequency
           iregime = 0
           if( cmxdbz .lt. CFODD_BNDZE(1) ) then
-             iregime = 1  !! non-precipitating
+             iregime = 4  !! non-precipitating
           elseif( cmxdbz .ge. CFODD_BNDZE(1) .and. cmxdbz .lt. CFODD_BNDZE(2) ) then
-             iregime = 2  !! drizzling
+             iregime = 5  !! drizzling
           elseif( cmxdbz .ge. CFODD_BNDZE(2) ) then
-             iregime = 3  !! raining
+             iregime = 6  !! raining
           endif
+          print*,"cmxdbz: ", cmxdbz
+          print*,"loc: ", i
+          print*,"subcol: ", j
           wr_occfreq_ntotal(i,iregime) = wr_occfreq_ntotal(i,iregime) + 1._wp
 
           !! retrievals of ICOD and dBZe bin for CFODD plane
