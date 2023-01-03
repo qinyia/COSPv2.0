@@ -555,10 +555,10 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
     ! In other words, if MODIS detected an SLWC anywhere in the column, this column will be excluded from 
     ! the following CALIPSO/CloudSat analysis of SLWCs to avoid double-counting. The  subcolumn logic is
     ! based on CloudSat dBZe, and is the same whether considering MODIS/CloudSat or CALIPSO/CloudSat
-    print*,"sum wr_occfreq_ntotal(229,1:3): ", sum(wr_occfreq_ntotal(229,1:WR_NREGIME))
-    print*,"maxval tautot_liq(229,1,:) :", MAXVAL(tautot_liq(229,1,1:Nlevels))
-    print*,"tautot_liq(229,1,36): ", tautot_liq(229,1,36)
-    print*,"maxval tautot_ice(229,1,:): ", MAXVAL(tautot_ice(229,1,1:Nlevels))
+    print*,"sum wr_occfreq_ntotal(1,1:3): ", sum(wr_occfreq_ntotal(1,1:WR_NREGIME))
+    print*,"maxval tautot_liq(1,1,:) :", MAXVAL(tautot_liq(1,1,1:Nlevels))
+    print*,"tautot_liq(1,1,36): ", tautot_liq(1,1,36)
+    print*,"maxval tautot_ice(1,1,:): ", MAXVAL(tautot_ice(1,1,1:Nlevels))
     do i  = 1, Npoints
         modis_ice = .false.
         if( sunlit(i) .le. 0 .or.  & ! remove non-sunlit columns for consistency with MODIS detection of SLWCs 
@@ -614,11 +614,11 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
                 kctop = k  !! update
              endif
           enddo  !! k loop
-          if ( (i .eq. 229) .and. (j .eq. 1) )then
-             print*,"kcbtm level at i = 229,j = 1: ", kcbtm
-             print*,"kctop level at i = 229, j = 1: ", kctop
-             print*, "temp at i = 229, j=1, lev = 36: ", temp(i,j,36)
-             print*, "calice at i=229: ", calice(229)
+          if ( (i .eq. 1) .and. (j .eq. 1) )then
+             print*,"kcbtm level at i = 1,j = 1: ", kcbtm
+             print*,"kctop level at i = 1, j = 1: ", kctop
+             print*, "temp at i = 1, j=1, lev = 36: ", temp(i,j,36)
+             print*, "calice at i=1: ", calice(1)
           endif
 
           if( ocbtm )  cycle  !! cloud wasn't detected in this subcolumn
@@ -652,10 +652,10 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
             endif
           enddo
           
-          if ((i .eq. 229) .and. (j .eq. 1)) then
-             print*,"oslwc condition at i =229, j=1: ", oslwc
-             print*, "dbze(229,1,kcbtm:kctop): ", dbze(229,1,kcbtm:kctop)
-             print*, "fracout_int(229,1,kcbtm:kctop): ", fracout_int(229,1,kcbtm:kctop)
+          if ((i .eq. 1) .and. (j .eq. 1)) then
+             print*,"oslwc condition at i =1, j=1: ", oslwc
+             print*, "dbze(1,1,kcbtm:kctop): ", dbze(1,1,kcbtm:kctop)
+             print*, "fracout_int(1,1,kcbtm:kctop): ", fracout_int(1,1,kcbtm:kctop)
           endif
 
           if ( multilcld .and. modis_cond(i) ) then
