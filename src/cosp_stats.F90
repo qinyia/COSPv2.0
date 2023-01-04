@@ -342,10 +342,11 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
          mice,              & ! # of ice clouds
          lsmallreff,        & ! # of liquid clouds that have too small reff to meet SLWC conditions
          lbigreff,          & ! # of liquid clouds that have too big reff to meet SLWC conditions
-         nmultilcld,        & ! # of multilayer cloud subcolumns, excluded from SLWC counts
-         nhetcld,           & ! # of heterogenous clouds (stratocumulus above/below cumulus) in continuous layer
          coldct,            & ! # of subcolumns with cloud top temp < 273 K
          calice               ! # of columns where Calipso detected ice that was not detected by MODIS
+    real(wp),dimension(Npoints,2),intent(inout) :: &
+         nmultilcld,        & ! # of multilayer cloud subcolumns, excluded from SLWC counts, 1 = MODIS/CloudSat detected, 2 = CALIPSO/CloudSat detected
+         nhetcld              ! # of heterogenous clouds (stratocumulus above/below cumulus) in continuous layer
      real(wp),dimension(Npoints,NOBSTYPE),intent(inout) :: obs_ntotal     ! # of Observations
      real(wp),dimension(Npoints,SLWC_NCOT,CFODD_NCLASS),intent(inout) :: slwccot_ntotal     ! # of MODIS liquid COT samples for SLWCs only @ each ICOD bin
 
@@ -383,8 +384,8 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           lsmallreff(i) = R_UNDEF
           lbigreff(i) = R_UNDEF
           obs_ntotal(i,:) = R_UNDEF
-          nhetcld(i) = R_UNDEF
-          nmultilcld(i) = R_UNDEF
+          nhetcld(i,:) = R_UNDEF
+          nmultilcld(i,:) = R_UNDEF
           coldct(i) = R_UNDEF
           slwccot(i,:) = R_UNDEF
           slwccot_ntotal(i,:,:) = R_UNDEF
@@ -398,8 +399,8 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           lsmallreff(i) = 0._wp
           lbigreff(i) = 0._wp
           obs_ntotal(i,:) = 0._wp
-          nhetcld(i) = 0._wp
-          nmultilcld(i) = 0._wp
+          nhetcld(i,:) = 0._wp
+          nmultilcld(i,:) = 0._wp
           coldct(i) = 0._wp
           slwccot(i,:) = 0._wp
           slwccot_ntotal(i,:,:) = 0._wp
@@ -504,11 +505,11 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           enddo
           
           if ( multilcld ) then
-             nmultilcld(i) = nmultilcld(i) + 1._wp
+             nmultilcld(i,1) = nmultilcld(i,1) + 1._wp
           endif
           
           if ( hetcld ) then
-             nhetcld(i) = nhetcld(i) + 1._wp
+             nhetcld(i,1) = nhetcld(i,1) + 1._wp
           endif
           
           if ( .not. oslwc ) cycle  !! return to the j (subcolumn) loop
@@ -623,7 +624,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
 
           if( ocbtm )  cycle  !! cloud wasn't detected in this subcolumn
           !! check SLWC?
-          if( temp(i,1,kctop) .lt. tmelt .and. modis_cond(i) .and. &
+          if( temp(i,j,kctop) .lt. tmelt .and. modis_cond(i) .and. &
               MAXVAL(tautot_ice(i,j,1:Nlevels)) .le. COT_THRESHOLD ) then !if the sample did not meet LWP, liquid COT Reff thresholds for MODIS detection
               coldct(i) = coldct(i) + 1._wp                         !meaning it was not detected by MODIS, but was by CALIPSO, add it to cold ct count
               !print*, "got a cold cloud top from CALIPSO"
@@ -654,16 +655,17 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           
           if ((i .eq. 1) .and. (j .eq. 1)) then
              print*,"oslwc condition at i =1, j=1: ", oslwc
-             print*, "dbze(1,1,kcbtm:kctop): ", dbze(1,1,kcbtm:kctop)
-             print*, "fracout_int(1,1,kcbtm:kctop): ", fracout_int(1,1,kcbtm:kctop)
+             print*, "dbze(1,1,kctop:kcbtm): ", dbze(1,1,kctop:kcbtm)
+             print*, "fracout_int(1,1,kctop:kcbtm): ", fracout_int(1,1,kctop:kcbtm)
           endif
 
-          if ( multilcld .and. modis_cond(i) ) then
-             nmultilcld(i) = nmultilcld(i) + 1._wp
+!          if ( multilcld .and. modis_cond(i) ) then
+          if (multilcld) then
+             nmultilcld(i,2) = nmultilcld(i,2) + 1._wp
           endif
           
-          if ( hetcld .and. modis_cond(i) ) then
-             nhetcld(i) = nhetcld(i) + 1._wp
+          if ( hetcld ) then
+             nhetcld(i,2) = nhetcld(i,2) + 1._wp
           endif
           
           if ( .not. oslwc ) cycle  !! return to the j (subcolumn) loop
