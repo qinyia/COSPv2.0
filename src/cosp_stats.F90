@@ -560,7 +560,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
     ! In other words, if MODIS detected an SLWC anywhere in the column, this column will be excluded from 
     ! the following CALIPSO/CloudSat analysis of SLWCs to avoid double-counting. The  subcolumn logic is
     ! based on CloudSat dBZe, and is the same whether considering MODIS/CloudSat or CALIPSO/CloudSat
-    print*,"lchunk before CALIPSO WRD section: ", lchnk
+  
     do i  = 1, Npoints
         modis_ice = .false.
         if( sunlit(i) .le. 0 .or.  & ! remove non-sunlit columns for consistency with MODIS detection of SLWCs 
@@ -592,19 +592,11 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
              calice(i) = calice(i) + 1._wp
           endif
 
-          ! print*,"max calipso ice tau over levels: ", MAXVAL(tautot_ice(i,j,1:Nlevels))
           if ( MAXVAL(tautot_ice(i,j,1:Nlevels)) .gt. COT_THRESHOLD ) cycle !exclude if Calipso detected ice
 
           if ( MAXVAL(tautot_liq(i,j,1:Nlevels)) .le. COT_THRESHOLD ) cycle !exclude subcolumn if clearsky
-          ! print*,"max calipso liq tau over levels: ", MAXVAL(tautot_liq(i,j,1:Nlevels))
-          
-          print*,"check lchnk before cldtp/btm section: ", lchnk
-          print*,"chunk column idex #: ", i
-          print*,"sum wr_occfreq_ntotal(i,1:3): ", sum(wr_occfreq_ntotal(i,1:WR_NREGIME))
-          print*,"maxval tautot_liq(i,1,:) :", MAXVAL(tautot_liq(i,1,1:Nlevels))
-          print*,"tautot_liq(i,1,35): ", tautot_liq(i,1,35)
-          print*,"maxval tautot_ice(i,1,:): ", MAXVAL(tautot_ice(i,1,1:Nlevels))
-         
+      
+                
           !CDIR NOLOOPCHG
           do k = Nlevels, 1, -1  !! scan from cloud-bottom to cloud-top
              if ( dbze(i,j,k) .eq. R_GROUND .or. &
@@ -622,24 +614,12 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
                 & dbze(i,j,k)        .ge. CFODD_DBZE_MIN   ) then
                 kctop = k  !! update
              endif
-          enddo  !! k loop
-          
-          if (j .eq. 1) then
-             print*, "clear sky in 1st subcol?: ", ocbtm
-             print*, "lchnk @ WRDs, after CloudSat sect. : ", lchnk
-             print*, "chunk column index #: ", i
-             print*,"kcbtm level, 1st subcolumn: ", kcbtm
-             print*,"kctop level, 1st subcolumn: ", kctop
-             print*, "temp at j=1, lev 35: ", temp(i,j,35)
-             print*, "calice: ", calice(i)
-          endif
-         
+          enddo  !! k loop         
 
           if( ocbtm )  cycle  !! cloud wasn't detected in this subcolumn
           !! check SLWC?
           if( temp(i,1,kctop) .lt. tmelt ) then 
               coldct_cal(i) = coldct_cal(i) + 1._wp 
-              !print*, "got a cold cloud top from CALIPSO"
           endif
 
           if( temp(i,1,kctop) .lt. tmelt ) cycle  !! return to the j (subcolumn) loop
@@ -666,13 +646,6 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
             endif
           enddo
           
-          if (j .eq. 1) then
-             print*, "checking lchnk after het/multicld check: ", lchnk
-             print*,"oslwc condition at j=1: ", oslwc
-             print*, "dbze(i,1,kctop:kcbtm): ", dbze(i,1,kctop:kcbtm)
-             print*, "fracout_int(i,1,kctop:kcbtm): ", fracout_int(i,1,kctop:kcbtm)
-          endif
-
 !          if ( multilcld .and. modis_cond(i) ) then
           if (multilcld) then
              nmultilcld(i,2) = nmultilcld(i,2) + 1._wp
@@ -694,12 +667,6 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
              iregime = 6  !! raining
           endif
 
-          print*,"checking lchnk at SLWC found: ", lchnk
-          print*,"cmxdbz: ", cmxdbz
-          print*,"iregime: ", iregime
-          print*,"chunk column index #: ", i
-          print*,"subcol: ", j
-          print*, "saved to wr_occfreq_ntotal(i,iregime):", wr_occfreq_ntotal(i,iregime) + 1._wp
           wr_occfreq_ntotal(i,iregime) = wr_occfreq_ntotal(i,iregime) + 1._wp
 
           !! retrievals of ICOD and dBZe bin for CFODD plane
@@ -733,13 +700,6 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
         
        
     !! CMB adding counts of other cloud types to assess frequency of single-layer warm phase clouds
-  !print*,"L534 (prior to do-loop) mice[3616]: ", mice(3616)
-  !print*, "L534 iwp[3616]: ", iwp(3616)
-  !print*, "L534 lwp[3616]: ", lwp(3616)
-  !print*,"L534 mice[3617]: ", mice(3617)
-  !print*,"L534 iwp[3617]: ", iwp(3617) 
-  !print*,"L534 lwp[3617]: ", lwp(3617) 
-
     do i = 1, Npoints
 !       if (lwp(i) .eq. R_UNDEF) cycle !remove non-sunlit columns
        if (sunlit(i) .le. 0 ) cycle !remove non-sunlit columns
@@ -749,7 +709,6 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
                 & icecot(i)  .le.  COT_THRESHOLD  .and.  &
                 & icereff(i) .le.  CFODD_BNDRE(1)        ) then !liquid small COT
                 lsmallcot(i) = lsmallcot(i) + 1._wp
-                !print*, "lsmallcot: ", lsmallcot(i)
              endif
              
              if ( iwp(i)     .gt. CWP_THRESHOLD   .or.  &
