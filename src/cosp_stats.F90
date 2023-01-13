@@ -364,23 +364,29 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
     real(wp) :: diagdbze  !! diagnosed dBZe
     real(wp) :: diagicod  !! diagnosed in-cloud optical depth
     real(wp) :: cbtmh     !! diagnosed in-cloud optical depth
-    real(wp), dimension(Npoints,Ncolumns,Nlevels) :: icod  !! in-cloud optical depth (ICOD)
+    real(wp), dimension(Npoints,Ncolumns,Nlevels) :: icod, icod_cal  !! in-cloud optical depth (ICOD)
     logical  :: octop, ocbtm, oslwc, multilcld, hetcld, modis_ice
     integer, dimension(Npoints,Ncolumns,Nlevels) :: fracout_int  !! fracout (decimal to integer)
     integer  :: obstype   !! 1 = all-sky; 2 = clear-sky; 3 = cloudy-sky
     real(wp),dimension(Npoints,Ncolumns) :: slwccot     ! MODIS liquid COT for SLWCs only
+    real(wp),dimension(Npoints,Ncolumns) :: slwccot_cal ! CALIPSO liquid COT for SLWCs only
     logical, dimension(Npoints) :: modis_cond           ! MODIS column-level conditions for detecting SLWCs
 
     fracout_int(:,:,:) = NINT( fracout(:,:,:) )  !! assign an integer subpixel ID (0=clear-sky; 1=St; 2=Cu)
     modis_cond(:) = .false.
 
     !! initialize
+    slwccot(:,:) = R_UNDEF
+    slwccot_cal(:,:) = R_UNDEF
+    icod(:,:,:) = R_UNDEF
+    icod_cal(:,:,:) = R_UNDEF
     do i = 1, Npoints
 !       if ( lwp(i) .eq. R_UNDEF ) then  ! for non-sunlit columns
        if ( sunlit(i) .le. 0 ) then  ! for non-sunlit columns
           cfodd_ntotal(i,:,:,:) = R_UNDEF
           wr_occfreq_ntotal(i,:) = R_UNDEF
-          icod(i,:,:) = R_UNDEF
+!          icod(i,:,:) = R_UNDEF
+!         icod_cal(i,:,:) = R_UNDEF
           lsmallcot(i) = R_UNDEF
           mice(i) = R_UNDEF
           lsmallreff(i) = R_UNDEF
@@ -390,13 +396,15 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           nmultilcld(i,:) = R_UNDEF
           coldct(i) = R_UNDEF
           coldct_cal(i) = R_UNDEF
-          slwccot(i,:) = R_UNDEF
+!          slwccot(i,:) = R_UNDEF
+!          slwccot_cal(i,:) = R_UNDEF
           slwccot_ntotal(i,:,:) = R_UNDEF
           calice(i) = R_UNDEF
        else
           cfodd_ntotal(i,:,:,:)  = 0._wp
           wr_occfreq_ntotal(i,:) = 0._wp
-          icod(i,:,:) = 0._wp
+ !         icod(i,:,:) = 0._wp
+ !         icod_cal(i,:,:) = 0._wp
           lsmallcot(i) = 0._wp
           mice(i) = 0._wp
           lsmallreff(i) = 0._wp
@@ -406,7 +414,8 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           nmultilcld(i,:) = 0._wp
           coldct(i) = 0._wp
           coldct_cal(i) = 0._wp
-          slwccot(i,:) = 0._wp
+!          slwccot(i,:) = 0._wp
+!          slwccot_cal(i,:) = 0._wp
           slwccot_ntotal(i,:,:) = 0._wp
           calice(i) = 0._wp
        endif
@@ -673,27 +682,28 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
           diagcgt = zlev(i,kctop) - zlev(i,kcbtm)
           cbtmh   = zlev(i,kcbtm)
           !CDIR NOLOOPCHG
+          !print*,"is oslwc true before slwccot_cal assigned?: ", oslwc
           do k = kcbtm, kctop, -1
              if( k .eq. kcbtm ) then
                 diagicod = tautot_liq(i,j,k)
-                slwccot(i,j) = min( tautot_liq(i,j,k), SLWC_COT_MAX )
+                slwccot_cal(i,j) = min( tautot_liq(i,j,k), SLWC_COT_MAX )
              else
                 diagicod = tautot_liq(i,j,k) * ( 1._wp - ( (zlev(i,k)-cbtmh)/diagcgt)**(5._wp/3._wp) )
              endif
-             icod(i,j,k) = min( diagicod, CFODD_ICOD_MAX )
+             icod_cal(i,j,k) = min( diagicod, CFODD_ICOD_MAX )
           enddo
 
        enddo  ! j (Ncolumns)
-
+       
        icls = 4  !A 4th CFODD for all Reff bins
        !! # of samples for CFODD (joint 2d-histogram dBZe vs ICOD)
-       call hist2d( dbze(i,1:Ncolumns,1:Nlevels), icod(i,1:Ncolumns,1:Nlevels), &
+       call hist2d( dbze(i,1:Ncolumns,1:Nlevels), icod_cal(i,1:Ncolumns,1:Nlevels), &
                   & Ncolumns*Nlevels,                                           &
                   & CFODD_HISTDBZE, CFODD_NDBZE, CFODD_HISTICOD, CFODD_NICOD,   &
                   & cfodd_ntotal( i, 1:CFODD_NDBZE, 1:CFODD_NICOD, icls )       )
     
        slwccot_ntotal(i, 1:SLWC_NCOT, icls) = hist1d( Ncolumns,                     &
-                     slwccot(i,1:Ncolumns), SLWC_NCOT, SLWC_HISTCOT         )
+                     slwccot_cal(i,1:Ncolumns), SLWC_NCOT, SLWC_HISTCOT         )
 
     enddo     ! i (Npoints)
 
@@ -741,7 +751,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
   END SUBROUTINE COSP_DIAG_WARMRAIN
 
   ! ######################################################################################
-  ! FUNCTION hist1D
+  ! FUNCTION hist1d
   ! ######################################################################################
   function hist1d(Npoints,var,nbins,bins)
     ! Inputs
@@ -763,7 +773,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
        if (count(var .eq. R_GROUND) .ge. 1) hist1D(ij-1)=R_UNDEF
     enddo
     
-  end function hist1D
+  end function hist1d
   
   ! ######################################################################################
   ! SUBROUTINE hist2D
