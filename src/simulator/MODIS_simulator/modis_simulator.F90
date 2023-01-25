@@ -430,7 +430,7 @@ contains
         Cloud_Top_Nd_Total_Mean = R_UNDEF
     endwhere
 
-    write(*,*) 'Cloud_Top_Nd_Total_Mean=',Cloud_Top_Nd_Total_Mean
+    !write(*,*) 'Cloud_Top_Nd_Total_Mean=',Cloud_Top_Nd_Total_Mean
 
     ! ########################################################################################
     ! Normalize pixel counts to fraction. 
