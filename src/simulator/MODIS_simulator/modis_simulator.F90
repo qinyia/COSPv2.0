@@ -262,8 +262,12 @@ contains
                 retrievedCloudTopNd(i) = R_UNDEF
             else
                 if (retrievedTau(i) * retrievedSize(i) > 0._wp) then ! ensure the derived LWP larger than zero because size has re_fill value
-                    call calNd_bennartz17(retrievedCloudTopTemperature(i), &
-                                          2._wp/3._wp * 1000._wp * retrievedTau(i) * retrievedSize(i), & ! derived LWP from Tau and Re
+                    !call calNd_bennartz17(retrievedCloudTopTemperature(i), &
+                    !                      2._wp/3._wp * 1000._wp * retrievedTau(i) * retrievedSize(i), & ! derived LWP from Tau and Re
+                    !                      retrievedTau(i), &
+                    !                      retrievedCloudTopNd(i))
+                    call calNd_grosvenor18(retrievedCloudTopTemperature(i), &
+                                          retrievedSize(i), & 
                                           retrievedTau(i), &
                                           retrievedCloudTopNd(i))
                     !write (*,*) 'calculating Nd...', 'temp=',retrievedCloudTopTemperature(i), 'tau=',retrievedTau(i), 'size=',retrievedSize(i), 'Nd=',retrievedCloudTopNd(i)
@@ -1070,5 +1074,52 @@ subroutine calNd_bennartz17(e3sm_cloud_top_temp,e3sm_modis_lwp_rel,e3sm_modis_co
     CDNC = 1.e-6_wp*(((e3sm_modis_cod_rel)**3._wp)/k)*((2._wp*e3sm_modis_lwp_rel)**(-2.5_wp))*((0.6_wp*pai*Q)**(-3._wp))*((3._wp/(4._wp*pai*rho_liq))**(-2._wp))*((A*gamma_ad)**0.5_wp)
 
 end subroutine calNd_bennartz17
+
+! ============================================================================================
+! YQIN 01/26/22 function to calculate Nd (COD,REL)
+subroutine calNd_grosvenor18(e3sm_cloud_top_temp,e3sm_modis_reff,e3sm_modis_cod_rel,CDNC)
+
+    ! Based on Adam's python code to calculate CDNC with equation from Grosvenor et al (2018)
+
+    real(wp), intent(in) :: e3sm_cloud_top_temp !cloud top temperature (K)
+    real(wp), intent(in) :: e3sm_modis_reff     ! effective radius
+    real(wp), intent(in) :: e3sm_modis_cod_rel  ! grid-mean cloud optical depth [1]
+    real(wp), intent(out):: CDNC
+
+    real(wp), parameter :: G = 9.8_wp
+    real(wp), parameter :: Cp = 1005.7_wp
+    real(wp), parameter :: Rd = 287._wp
+    real(wp), parameter :: Rv = 461._wp
+    real(wp), parameter :: lv = 2.477e6_wp  !at 10 C
+    real(wp), parameter :: pres_const = 85000._wp !units of Pa (used by Bennartz), could use cloud top pressure, but shouldn't alter the estimates much
+    real(wp), parameter :: Q = 2._wp              !assumed scattering efficiency
+    real(wp), parameter :: k = 0.80_wp            !ratio of volume mean radius to effective radius; Bennartz uses 0.8 +/- 0.1 but can be 0.5-0.9 in nature depending on the cloud type
+    real(wp), parameter :: rho_liq = 1000._wp     !water density
+    real(wp), parameter :: C1 = 0.05789_wp
+    real(wp), parameter :: pai = 3.1415_wp
+
+    real(wp), parameter :: A = 0.8_wp !this is the adiabaticity of the cloud. Set to 1 for an adiabatic cloud. I assume 80% but it can realistically vary between 0 to over 100%.
+    real(wp) :: epsilon
+
+    real(wp) :: rho_air, es, ws, gamma_w, gamma_ad, H
+
+    epsilon = Rd/Rv
+
+    !air density
+    rho_air = pres_const/(Rd*e3sm_cloud_top_temp)
+    !vapor pressure
+    es = 611.2_wp*exp(17.62_wp*(e3sm_cloud_top_temp-273.15_wp)/(243.12_wp + e3sm_cloud_top_temp - 273.15_wp))
+    !saturation vapor pressure
+    ws = epsilon*es/(pres_const - es)
+    !moist adiabatic lapse rate
+    gamma_w = G*((1._wp + lv*ws/(Rd*e3sm_cloud_top_temp))/(Cp + lv**2._wp*ws*epsilon/(Rd*e3sm_cloud_top_temp**2._wp)))
+    !condensate rate
+    gamma_ad = (((epsilon + ws)*ws*lv*gamma_w)/(Rd*e3sm_cloud_top_temp**2._wp) - (G*ws*pres_const/(Rd*e3sm_cloud_top_temp*(pres_const - es))))*rho_air
+
+    !this is Nd [#/cm3]; e3sm_modis_cod_rel is the cloud optical depth after accounting for cloud fraction
+    CDNC = 1.e-6_wp*(sqrt(5._wp)/(2._wp*k*pai))*sqrt(A*gamma_ad*e3sm_modis_cod_rel/(Q*rho_liq*e3sm_modis_reff**5._wp))
+
+end subroutine calNd_grosvenor18
+
 
 end module mod_modis_sim
