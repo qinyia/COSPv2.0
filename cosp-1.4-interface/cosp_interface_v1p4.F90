@@ -944,6 +944,7 @@ contains
     cospgridIN%zenang                                   = gbx%zenang
     cospgridIN%phalf(:,1)                               = 0._wp
     cospgridIN%phalf(:,2:gbx%Nlevels+1)                 = gbx%ph(start_idx:end_idx,gbx%Nlevels:1:-1)    
+    cospgridIN%lchnk(1)                                 = gbx%lchnk
     if (gbx%Ncolumns .gt. 1) then
        
        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

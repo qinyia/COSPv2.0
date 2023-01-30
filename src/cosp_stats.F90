@@ -36,10 +36,27 @@
 ! Jan 2013 - G. Cesana        - Added betaperp and temperature arguments 
 !                             - Added phase 3D/3Dtemperature/Map output variables in diag_lidar 
 ! May 2015 - D. Swales        - Modified for cosp2.0 
+! Nov 2018 - T. Michibata     - Added CloudSat+MODIS Warmrain Diagnostics
 ! %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 MODULE MOD_COSP_STATS
   USE COSP_KINDS, ONLY: wp
-  USE MOD_COSP_CONFIG, ONLY: R_UNDEF,R_GROUND
+  USE MOD_COSP_CONFIG, &
+      ONLY: R_UNDEF,          R_GROUND,         &
+            SGCLD_CLR,        SGCLD_ST,         &
+            SGCLD_CUM,                          &
+            CWP_THRESHOLD,    COT_THRESHOLD,    &
+            CFODD_NDBZE,      CFODD_NICOD,      &
+            CFODD_BNDRE,      CFODD_BNDZE,      &
+            CFODD_NCLASS,                       &
+            CFODD_DBZE_MIN,   CFODD_DBZE_MAX,   &
+            CFODD_ICOD_MIN,   CFODD_ICOD_MAX,   &
+            CFODD_DBZE_WIDTH, CFODD_ICOD_WIDTH, &
+            CFODD_HISTDBZE,   CFODD_HISTICOD,   &
+            WR_NREGIME, NOBSTYPE,               &
+            SLWC_NCOT,                          &
+            SLWC_COT_MAX, SLWC_HISTCOT          
+            
+  USE COSP_PHYS_CONSTANTS,  ONLY: tmelt
 
   IMPLICIT NONE
 CONTAINS
@@ -247,8 +264,494 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
     
   END SUBROUTINE COSP_LIDAR_ONLY_CLOUD
   
+  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  !-----------------------  SUBROUTINE COSP_DIAG_WARMRAIN ------------------------
+  ! (c) 2018, Research Institute for Applied Mechanics (RIAM), Kyushu Univ.
+  ! All rights reserved.
+  ! * Purpose:    1) Diagnose Contoured Frequency by Optical Depth Diagram (CFODD)
+  !                  from CloudSat Radar and MODIS retrievals.
+  !               2) Diagnose Warm-Rain Occurrence Frequency (nonprecip/drizzle/rain)
+  !                  from CloudSat Radar.
+  ! * History:    Jan 2018 (T.Michibata): Test run
+  !               May 2018 (T.Michibata): update for COSP2
+  !               Sep 2018 (T.Michibata): modified I/O
+  !               Nov 2018 (T.Michibata): minor revisions
+  !               May 2020 (T.Michibata and X.Jing): bug-fix for frac_out dimsize
+  !               Apr 2022 (T.Michibata): bug-fix for non-sunlit columns
+  ! * References: Michibata et al. (GMD'19, doi:10.5194/gmd-12-4297-2019)
+  !               Michibata et al. (GRL'20, doi:10.1029/2020GL088340)
+  !               Suzuki et al. (JAS'10, doi:10.1175/2010JAS3463.1)
+  !               Suzuki et al. (JAS'15, doi:10.1175/JAS-D-14-0265.1)
+  !               Jing et al. (JCLIM'19, doi:10.1175/jcli-d-18-0789.1)
+  ! * Contact:    Takuro Michibata (RIAM, Kyushu University, Japan).
+  !               E-mail: michibata@riam.kyushu-u.ac.jp
+  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  SUBROUTINE COSP_DIAG_WARMRAIN( Npoints, Ncolumns, Nlevels,           & !! in
+                                 temp,    zlev, lchnk, sunlit,         & !! in
+                                 lwp,     liqcot,   liqreff, liqcfrc,  & !! in
+                                 iwp,     icecot,   icereff, icecfrc,  & !! in
+                                 fracout, dbze,                        & !! in
+                                 tautot_liq, tautot_ice,               & !! in
+                                 lidarcldphase,                        & !! in
+                                 cfodd_ntotal,                         & !! inout
+                                 wr_occfreq_ntotal,                    & !! inout
+                                 lsmallcot, mice, lsmallreff,          & !! inout
+                                 lbigreff, nmultilcld, nhetcld, coldct,& !! inout
+                                 coldct_cal,calice, obs_ntotal, slwccot_ntotal )    !! inout
+    integer,parameter :: &
+         Nphase = 6 ! Number of CALIPSO cloud layer phase types
+                    ! [ice,liquid,undefined,false ice,false liquid,Percent of ice]
+
+    ! Inputs
+    integer, intent(in) :: &
+         Npoints,          & ! Number of horizontal gridpoints
+         Ncolumns,         & ! Number of subcolumns
+         Nlevels,          & ! Number of vertical layers
+         lchnk               ! Local chunk id for debugging by location
+    integer, dimension(Npoints), intent(in) ::  &
+         sunlit              ! cospgridIN%sunlit
+    real(wp), dimension(Npoints), intent(in) :: &
+         lwp,              & ! MODIS LWP [kg m-2]
+         liqcot,           & ! MODIS liq. COT
+         liqreff,          & ! MODIS liq. Reff [m]
+         liqcfrc             ! MODIS liq. cloud fraction
+!         sunlit              ! cospgridIN%sunlit
+    real(wp), dimension(Npoints), intent(in) :: &
+         iwp,              & ! MODIS IWP [kg m-2]
+         icecot,           & ! MODIS ice COT
+         icereff,          & ! MODIS ice Reff [m]
+         icecfrc             ! MODIS ice cloud fraction
+    real(wp), dimension(Npoints,Nlevels), intent(in) :: &
+         zlev                ! altitude [m] for model level
+    real(wp), dimension(Npoints,1,Nlevels),intent(in) :: &
+         temp                ! temperature [K]
+    real(wp), dimension(Npoints,Ncolumns,Nlevels),intent(in) :: &
+         fracout,          & ! SCOPS subcolumn retrieval
+         dbze,             & ! Radar reflectivity [dBZe]
+         tautot_liq,       & ! CALIPSO optical thickness liquid
+         tautot_ice          ! CALIPSO optical thickness ice
+    real(wp), dimension(Npoints,Nlevels,Nphase),intent(in) :: &
+         lidarcldphase       ! CALIPSO cloud fraction by phase [2=liquid]
+
+    ! Outputs
+    real(wp),dimension(Npoints,CFODD_NDBZE,CFODD_NICOD,CFODD_NCLASS),intent(inout) :: &
+         cfodd_ntotal        ! # of CFODD samples for each ICOD/dBZe bin
+    real(wp),dimension(Npoints,WR_NREGIME),intent(inout) :: &
+         wr_occfreq_ntotal   ! # of SLWC samples
+    real(wp),dimension(Npoints),intent(inout) :: &
+         lsmallcot,         & ! # of liquid clouds that don't meet COT condition
+         mice,              & ! # of ice clouds
+         lsmallreff,        & ! # of liquid clouds that have too small reff to meet SLWC conditions
+         lbigreff,          & ! # of liquid clouds that have too big reff to meet SLWC conditions
+         coldct,            & ! # of subcolumns with cloud top temp < 273 K
+         coldct_cal,        & ! # of subcolumns with cloud top temp < 273 K detected by CALIPSO (and not MODIS)
+         calice               ! # of columns where Calipso detected ice that was not detected by MODIS
+    real(wp),dimension(Npoints,2),intent(inout) :: &
+         nmultilcld,        & ! # of multilayer cloud subcolumns, excluded from SLWC counts, 1 = MODIS/CloudSat detected, 2 = CALIPSO/CloudSat detected
+         nhetcld              ! # of heterogenous clouds (stratocumulus above/below cumulus) in continuous layer
+     real(wp),dimension(Npoints,NOBSTYPE),intent(inout) :: obs_ntotal     ! # of Observations
+     real(wp),dimension(Npoints,SLWC_NCOT,CFODD_NCLASS),intent(inout) :: slwccot_ntotal     ! # of MODIS liquid COT samples for SLWCs only @ each ICOD bin
+
+
+    ! Local variables
+    integer  :: i, j, k
+    integer  :: ix, iy
+    integer  :: kctop, kcbtm
+    integer  :: icls
+    integer  :: iregime
+    real     :: cmxdbz
+    real(wp) :: diagcgt   !! diagnosed cloud geometric thickness [m]
+    real(wp) :: diagdbze  !! diagnosed dBZe
+    real(wp) :: diagicod  !! diagnosed in-cloud optical depth
+    real(wp) :: cbtmh     !! diagnosed in-cloud optical depth
+    real(wp), dimension(Npoints,Ncolumns,Nlevels) :: icod, icod_cal  !! in-cloud optical depth (ICOD)
+    logical  :: octop, ocbtm, oslwc, multilcld, hetcld, modis_ice
+    integer, dimension(Npoints,Ncolumns,Nlevels) :: fracout_int  !! fracout (decimal to integer)
+    integer  :: obstype   !! 1 = all-sky; 2 = clear-sky; 3 = cloudy-sky
+    real(wp),dimension(Npoints,Ncolumns) :: slwccot     ! MODIS liquid COT for SLWCs only
+    real(wp),dimension(Npoints,Ncolumns) :: slwccot_cal ! CALIPSO liquid COT for SLWCs only
+    logical, dimension(Npoints) :: modis_cond           ! MODIS column-level conditions for detecting SLWCs
+
+    fracout_int(:,:,:) = NINT( fracout(:,:,:) )  !! assign an integer subpixel ID (0=clear-sky; 1=St; 2=Cu)
+    modis_cond(:) = .false.
+
+    !! initialize
+    slwccot(:,:) = R_UNDEF
+    slwccot_cal(:,:) = R_UNDEF
+    icod(:,:,:) = R_UNDEF
+    icod_cal(:,:,:) = R_UNDEF
+    do i = 1, Npoints
+!       if ( lwp(i) .eq. R_UNDEF ) then  ! for non-sunlit columns
+       if ( sunlit(i) .le. 0 ) then  ! for non-sunlit columns
+          cfodd_ntotal(i,:,:,:) = R_UNDEF
+          wr_occfreq_ntotal(i,:) = R_UNDEF
+!          icod(i,:,:) = R_UNDEF
+!         icod_cal(i,:,:) = R_UNDEF
+          lsmallcot(i) = R_UNDEF
+          mice(i) = R_UNDEF
+          lsmallreff(i) = R_UNDEF
+          lbigreff(i) = R_UNDEF
+          obs_ntotal(i,:) = R_UNDEF
+          nhetcld(i,:) = R_UNDEF
+          nmultilcld(i,:) = R_UNDEF
+          coldct(i) = R_UNDEF
+          coldct_cal(i) = R_UNDEF
+!          slwccot(i,:) = R_UNDEF
+!          slwccot_cal(i,:) = R_UNDEF
+          slwccot_ntotal(i,:,:) = R_UNDEF
+          calice(i) = R_UNDEF
+       else
+          cfodd_ntotal(i,:,:,:)  = 0._wp
+          wr_occfreq_ntotal(i,:) = 0._wp
+ !         icod(i,:,:) = 0._wp
+ !         icod_cal(i,:,:) = 0._wp
+          lsmallcot(i) = 0._wp
+          mice(i) = 0._wp
+          lsmallreff(i) = 0._wp
+          lbigreff(i) = 0._wp
+          obs_ntotal(i,:) = 0._wp
+          nhetcld(i,:) = 0._wp
+          nmultilcld(i,:) = 0._wp
+          coldct(i) = 0._wp
+          coldct_cal(i) = 0._wp
+!          slwccot(i,:) = 0._wp
+!          slwccot_cal(i,:) = 0._wp
+          slwccot_ntotal(i,:,:) = 0._wp
+          calice(i) = 0._wp
+       endif
+    enddo
+
+    do i = 1, Npoints
+        !! Total Sampling Frequency
+       do j = 1, Ncolumns, 1
+!          if( lwp(i).eq.R_UNDEF ) cycle ! remove non-sunlit columns
+          if ( sunlit(i) .le. 0 ) cycle ! remove non-sunlit columns
+          obs_ntotal(i,1) = obs_ntotal(i,1) + 1._wp  ! all-sky (# of all samples)
+          obstype = 2                      ! initial flag (2 = clear sky)
+          !CDIR NOLOOPCHG
+          do k = 1, Nlevels
+             if ( dbze   (i,j,k) .ge. CFODD_DBZE_MIN .and. &
+                & dbze   (i,j,k) .le. CFODD_DBZE_MAX .and. &
+                & fracout(i,j,k) .ne. SGCLD_CLR            ) then
+                obstype = 3  ! cloudy sky
+             endif
+          enddo !Nlevels
+          
+          obs_ntotal(i,obstype) = obs_ntotal(i,obstype) + 1._wp
+       enddo !Ncolumns
+
+       !! check by MODIS retrieval
+!       if ( lwp(i)     .eq.  R_UNDEF        .or.  &       !! exclude non-sunlit
+       if ( sunlit(i)  .le.  0              .or.  &       !! exclude non-sunlit
+          & lwp(i)     .le.  CWP_THRESHOLD  .or.  &
+          & liqcot(i)  .le.  COT_THRESHOLD  .or.  &
+          & liqreff(i) .lt.  CFODD_BNDRE(1) .or.  &
+          & liqreff(i) .gt.  CFODD_BNDRE(4) .or.  &
+          & iwp(i)     .gt.  CWP_THRESHOLD  .or.  &       !! exclude ice cloud
+          & icecot(i)  .gt.  COT_THRESHOLD  .or.  &       !! exclude ice cloud
+          & icereff(i) .gt.  CFODD_BNDRE(1)       ) then  !! exclude ice cloud
+          modis_cond(i) = .true.
+          cycle
+       else
+          !! retrieve the CFODD array based on Reff
+          icls = 0
+          if (    liqreff(i) .ge. CFODD_BNDRE(1) .and. liqreff(i) .lt. CFODD_BNDRE(2) ) then
+             icls = 1
+          elseif( liqreff(i) .ge. CFODD_BNDRE(2) .and. liqreff(i) .lt. CFODD_BNDRE(3) ) then
+             icls = 2
+          elseif( liqreff(i) .ge. CFODD_BNDRE(3) .and. liqreff(i) .le. CFODD_BNDRE(4) ) then
+             icls = 3
+          endif
+       endif
+
+       !CDIR NOLOOPCHG
+       do j = 1, Ncolumns, 1
+          octop = .true.  !! initialize
+          ocbtm = .true.  !! initialize
+          kcbtm =     0   !! initialize
+          kctop =     0   !! initialize
+          !CDIR NOLOOPCHG
+          do k = Nlevels, 1, -1  !! scan from cloud-bottom to cloud-top
+             if ( dbze(i,j,k) .eq. R_GROUND .or. &
+                  dbze(i,j,k) .eq. R_UNDEF       ) cycle
+             if ( ocbtm                              .and. &
+                & fracout_int(i,j,k) .ne. SGCLD_CLR  .and. &
+                & dbze(i,j,k)        .ge. CFODD_DBZE_MIN   ) then
+                ocbtm = .false.  !! cloud bottom detected
+                kcbtm = k
+                kctop = k
+             endif
+             if (       octop                        .and. &  !! scan cloud-top
+                & .not. ocbtm                        .and. &  !! cloud-bottom already detected
+                & fracout_int(i,j,k) .ne. SGCLD_CLR  .and. &  !! exclude clear sky
+                & dbze(i,j,k)        .ge. CFODD_DBZE_MIN   ) then
+                kctop = k  !! update
+             endif
+          enddo  !! k loop
+          if( ocbtm )  cycle  !! cloud wasn't detected in this subcolumn
+          !! check SLWC?
+          if( temp(i,1,kctop) .lt. tmelt ) then
+              coldct(i) = coldct(i) + 1._wp 
+          endif
+          if( temp(i,1,kctop) .lt. tmelt ) cycle  !! return to the j (subcolumn) loop
+          oslwc = .true.
+          hetcld = .false.
+          multilcld = .false.
+          cmxdbz = CFODD_DBZE_MIN  !! initialized
+
+          !CDIR NOLOOPCHG
+          do k = kcbtm, kctop, -1
+             cmxdbz = max( cmxdbz, dbze(i,j,k) )  !! column maximum dBZe update
+             if ( fracout_int(i,j,k) .eq. SGCLD_CLR  .or.  &
+                & fracout_int(i,j,k) .eq. SGCLD_CUM  .or.  &
+                & dbze       (i,j,k) .lt. CFODD_DBZE_MIN   ) then
+                oslwc = .false.
+             endif
+             if ( fracout_int(i,j,k) .eq. SGCLD_CLR .or.   &
+                & dbze       (i,j,k) .lt. CFODD_DBZE_MIN   ) then
+                multilcld = .true.
+             endif
+             if ( fracout_int(i,j,k) .eq. SGCLD_CUM .and.  &
+                & .not. multilcld ) then
+                hetcld = .true.
+            endif
+          enddo
+          
+          if ( multilcld ) then
+             nmultilcld(i,1) = nmultilcld(i,1) + 1._wp
+          endif
+          
+          if ( hetcld ) then
+             nhetcld(i,1) = nhetcld(i,1) + 1._wp
+          endif
+          
+          if ( .not. oslwc ) cycle  !! return to the j (subcolumn) loop
+
+          !! warm-rain occurrence frequency
+          iregime = 0
+          if( cmxdbz .lt. CFODD_BNDZE(1) ) then
+             iregime = 1  !! non-precipitating
+          elseif( cmxdbz .ge. CFODD_BNDZE(1) .and. cmxdbz .lt. CFODD_BNDZE(2) ) then
+             iregime = 2  !! drizzling
+          elseif( cmxdbz .ge. CFODD_BNDZE(2) ) then
+             iregime = 3  !! raining
+          endif
+          wr_occfreq_ntotal(i,iregime) = wr_occfreq_ntotal(i,iregime) + 1._wp
+
+          !! retrievals of ICOD and dBZe bin for CFODD plane
+          diagcgt = zlev(i,kctop) - zlev(i,kcbtm)
+          cbtmh   = zlev(i,kcbtm)
+          !CDIR NOLOOPCHG
+          do k = kcbtm, kctop, -1
+             if( k .eq. kcbtm ) then
+                diagicod = liqcot(i)
+                slwccot(i,j) = min( liqcot(i), SLWC_COT_MAX )
+             else
+                diagicod = liqcot(i) * ( 1._wp - ( (zlev(i,k)-cbtmh)/diagcgt)**(5._wp/3._wp) )
+             endif
+             icod(i,j,k) = min( diagicod, CFODD_ICOD_MAX )
+          enddo
+
+       enddo  ! j (Ncolumns)
+
+       !! # of samples for CFODD (joint 2d-histogram dBZe vs ICOD)
+       call hist2d( dbze(i,1:Ncolumns,1:Nlevels), icod(i,1:Ncolumns,1:Nlevels), &
+                  & Ncolumns*Nlevels,                                           &
+                  & CFODD_HISTDBZE, CFODD_NDBZE, CFODD_HISTICOD, CFODD_NICOD,   &
+                  & cfodd_ntotal( i, 1:CFODD_NDBZE, 1:CFODD_NICOD, icls )       )
+    
+       slwccot_ntotal(i, 1:SLWC_NCOT, icls) = hist1d( Ncolumns,                     &
+                     slwccot(i,1:Ncolumns), SLWC_NCOT, SLWC_HISTCOT         )
+
+    enddo     ! i (Npoints)
+
+    ! Detection of SLWCs using CALIPSO/Cloudsat, only those that were not detectected by MODIS.
+    ! In other words, if MODIS detected an SLWC anywhere in the column, this column will be excluded from 
+    ! the following CALIPSO/CloudSat analysis of SLWCs to avoid double-counting. The  subcolumn logic is
+    ! based on CloudSat dBZe, and is the same whether considering MODIS/CloudSat or CALIPSO/CloudSat
+  
+    do i  = 1, Npoints
+        modis_ice = .false.
+        if( sunlit(i) .le. 0 .or.  & ! remove non-sunlit columns for consistency with MODIS detection of SLWCs 
+            sum(wr_occfreq_ntotal(i,1:WR_NREGIME)) .ge. 1.0_wp ) cycle !.or. & !exclude columns where MODIS detected SLWCs already
+           ! iwp(i)     .gt.  CWP_THRESHOLD  .or.  &       !! exclude columns with ice clouds detected by MODIS
+           ! icecot(i)  .gt.  COT_THRESHOLD  .or.  &       !! exclude columns ice clouds detected by MODIS
+           ! icereff(i) .gt.  CFODD_BNDRE(1)       ) cycle !! exclude coulmns with ice clouds detected by MODIS
+
+        if( iwp(i)     .gt.  CWP_THRESHOLD  .or.  &       !! exclude columns with ice clouds detected by MODIS
+            icecot(i)  .gt.  COT_THRESHOLD  .or.  &       !! exclude columns ice clouds detected by MODIS
+            icereff(i) .gt.  CFODD_BNDRE(1)       ) then  !! exclude coulmns with ice clouds detected by MODIS
+            modis_ice = .true.                           
+        endif
+!        if( sum(lidarcldphase(i,1:Nlevels,1)) .gt. 0.0_wp )
+!           calice(i) = calice(i) + 1._wp
+!           cycle
+!        endif
+
+!       if( sum(lidarcldphase(i,1:Nlevels,2)) .le. 0.0_wp ) cycle ! exclude clear-sky
+
+       !CDIR NOLOOPCHG
+       do j = 1, Ncolumns, 1
+          octop = .true.  !! initialize
+          ocbtm = .true.  !! initialize
+          kcbtm =     0   !! initialize
+          kctop =     0   !! initialize
+          if ( MAXVAL(tautot_ice(i,j,1:Nlevels)) .gt. COT_THRESHOLD & 
+               .and. .not. modis_ice ) then !exclude if Calipso detected ice
+             calice(i) = calice(i) + 1._wp
+          endif
+
+          if ( MAXVAL(tautot_ice(i,j,1:Nlevels)) .gt. COT_THRESHOLD ) cycle !exclude if Calipso detected ice
+
+          if ( MAXVAL(tautot_liq(i,j,1:Nlevels)) .le. COT_THRESHOLD ) cycle !exclude subcolumn if clearsky
+      
+                
+          !CDIR NOLOOPCHG
+          do k = Nlevels, 1, -1  !! scan from cloud-bottom to cloud-top
+             if ( dbze(i,j,k) .eq. R_GROUND .or. &
+                  dbze(i,j,k) .eq. R_UNDEF       ) cycle
+             if ( ocbtm                              .and. &
+                & fracout_int(i,j,k) .ne. SGCLD_CLR  .and. &
+                & dbze(i,j,k)        .ge. CFODD_DBZE_MIN   ) then
+                ocbtm = .false.  !! cloud bottom detected
+                kcbtm = k
+                kctop = k
+             endif
+             if (       octop                        .and. &  !! scan cloud-top
+                & .not. ocbtm                        .and. &  !! cloud-bottom already detected
+                & fracout_int(i,j,k) .ne. SGCLD_CLR  .and. &  !! exclude clear sky
+                & dbze(i,j,k)        .ge. CFODD_DBZE_MIN   ) then
+                kctop = k  !! update
+             endif
+          enddo  !! k loop         
+
+          if( ocbtm )  cycle  !! cloud wasn't detected in this subcolumn
+          !! check SLWC?
+          if( temp(i,1,kctop) .lt. tmelt ) then 
+              coldct_cal(i) = coldct_cal(i) + 1._wp 
+          endif
+
+          if( temp(i,1,kctop) .lt. tmelt ) cycle  !! return to the j (subcolumn) loop
+          oslwc = .true.
+          hetcld = .false.
+          multilcld = .false.
+          cmxdbz = CFODD_DBZE_MIN  !! initialized
+
+          !CDIR NOLOOPCHG
+          do k = kcbtm, kctop, -1
+             cmxdbz = max( cmxdbz, dbze(i,j,k) )  !! column maximum dBZe update
+             if ( fracout_int(i,j,k) .eq. SGCLD_CLR  .or.  &
+                & fracout_int(i,j,k) .eq. SGCLD_CUM  .or.  &
+                & dbze       (i,j,k) .lt. CFODD_DBZE_MIN   ) then
+                oslwc = .false.
+             endif
+             if ( fracout_int(i,j,k) .eq. SGCLD_CLR .or.   &
+                & dbze       (i,j,k) .lt. CFODD_DBZE_MIN   ) then
+                multilcld = .true.
+             endif
+             if ( fracout_int(i,j,k) .eq. SGCLD_CUM .and.  &
+                & .not. multilcld ) then
+                hetcld = .true.
+            endif
+          enddo
+          
+!          if ( multilcld .and. modis_cond(i) ) then
+          if (multilcld) then
+             nmultilcld(i,2) = nmultilcld(i,2) + 1._wp
+          endif
+          
+          if ( hetcld ) then
+             nhetcld(i,2) = nhetcld(i,2) + 1._wp
+          endif
+          
+          if ( .not. oslwc ) cycle  !! return to the j (subcolumn) loop
+
+          !! warm-rain occurrence frequency
+          iregime = 0
+          if( cmxdbz .lt. CFODD_BNDZE(1) ) then
+             iregime = 4  !! non-precipitating
+          elseif( cmxdbz .ge. CFODD_BNDZE(1) .and. cmxdbz .lt. CFODD_BNDZE(2) ) then
+             iregime = 5  !! drizzling
+          elseif( cmxdbz .ge. CFODD_BNDZE(2) ) then
+             iregime = 6  !! raining
+          endif
+
+          wr_occfreq_ntotal(i,iregime) = wr_occfreq_ntotal(i,iregime) + 1._wp
+
+          !! retrievals of ICOD and dBZe bin for CFODD plane
+          diagcgt = zlev(i,kctop) - zlev(i,kcbtm)
+          cbtmh   = zlev(i,kcbtm)
+          !CDIR NOLOOPCHG
+          !print*,"is oslwc true before slwccot_cal assigned?: ", oslwc
+          do k = kcbtm, kctop, -1
+             if( k .eq. kcbtm ) then
+                diagicod = tautot_liq(i,j,k)
+                slwccot_cal(i,j) = min( tautot_liq(i,j,k), SLWC_COT_MAX )
+             else
+                diagicod = tautot_liq(i,j,k) * ( 1._wp - ( (zlev(i,k)-cbtmh)/diagcgt)**(5._wp/3._wp) )
+             endif
+             icod_cal(i,j,k) = min( diagicod, CFODD_ICOD_MAX )
+          enddo
+
+       enddo  ! j (Ncolumns)
+       
+       icls = 4  !A 4th CFODD for all Reff bins
+       !! # of samples for CFODD (joint 2d-histogram dBZe vs ICOD)
+       call hist2d( dbze(i,1:Ncolumns,1:Nlevels), icod_cal(i,1:Ncolumns,1:Nlevels), &
+                  & Ncolumns*Nlevels,                                           &
+                  & CFODD_HISTDBZE, CFODD_NDBZE, CFODD_HISTICOD, CFODD_NICOD,   &
+                  & cfodd_ntotal( i, 1:CFODD_NDBZE, 1:CFODD_NICOD, icls )       )
+    
+       slwccot_ntotal(i, 1:SLWC_NCOT, icls) = hist1d( Ncolumns,                     &
+                     slwccot_cal(i,1:Ncolumns), SLWC_NCOT, SLWC_HISTCOT         )
+
+    enddo     ! i (Npoints)
+
+        
+       
+    !! CMB adding counts of other cloud types to assess frequency of single-layer warm phase clouds
+    do i = 1, Npoints
+!       if (lwp(i) .eq. R_UNDEF) cycle !remove non-sunlit columns
+       if (sunlit(i) .le. 0 ) cycle !remove non-sunlit columns
+             if ( lwp(i)     .gt.  CWP_THRESHOLD .and. &
+                & liqcot(i)  .le.  COT_THRESHOLD  .and.  &
+                & iwp(i)     .le.  CWP_THRESHOLD  .and.  &
+                & icecot(i)  .le.  COT_THRESHOLD  .and.  &
+                & icereff(i) .le.  CFODD_BNDRE(1)        ) then !liquid small COT
+                lsmallcot(i) = lsmallcot(i) + 1._wp
+             endif
+             
+             if ( iwp(i)     .gt. CWP_THRESHOLD   .or.  &
+                & icecot(i)  .gt. COT_THRESHOLD   .or.  &
+                & icereff(i) .gt. CFODD_BNDRE(1)        ) then !meets ice condition
+                mice(i) = mice(i) + 1._wp
+             endif
+
+             if ( lwp(i)     .gt. CWP_THRESHOLD .and. &
+                & liqcot(i)  .gt. COT_THRESHOLD   .and. &
+                & liqreff(i) .lt. CFODD_BNDRE(1)  .and. &
+                & iwp(i)     .le.  CWP_THRESHOLD  .and. &
+                & icecot(i)  .le.  COT_THRESHOLD  .and. &
+                & icereff(i) .le.  CFODD_BNDRE(1)        ) then !liquid small reff
+                lsmallreff(i) = lsmallreff(i) + 1._wp
+             endif
+         
+             if ( lwp(i)     .gt. CWP_THRESHOLD   .and. &
+                & liqcot(i)  .gt. COT_THRESHOLD   .and. &
+                & liqreff(i) .gt. CFODD_BNDRE(4)  .and. & 
+                & iwp(i)     .le.  CWP_THRESHOLD  .and. &
+                & icecot(i)  .le.  COT_THRESHOLD  .and. &
+                & icereff(i) .le.  CFODD_BNDRE(1)        ) then !liquid big reff
+                lbigreff(i) = lbigreff(i) + 1._wp
+             endif
+              
+    enddo !i (Npoints)
+
+  RETURN
+  END SUBROUTINE COSP_DIAG_WARMRAIN
+
   ! ######################################################################################
-  ! FUNCTION hist1D
+  ! FUNCTION hist1d
   ! ######################################################################################
   function hist1d(Npoints,var,nbins,bins)
     ! Inputs
@@ -270,7 +773,7 @@ END SUBROUTINE COSP_CHANGE_VERTICAL_GRID
        if (count(var .eq. R_GROUND) .ge. 1) hist1D(ij-1)=R_UNDEF
     enddo
     
-  end function hist1D
+  end function hist1d
   
   ! ######################################################################################
   ! SUBROUTINE hist2D
