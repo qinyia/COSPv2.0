@@ -148,6 +148,20 @@ MODULE MOD_COSP_CONFIG
     real(wp),parameter,dimension(nReffLIQ) :: &
          reffLIQ_binCenters = (reffLIQ_binEdges(1,:)+reffLIQ_binEdges(2,:))/2._wp
 
+    ! YQIN 04/04/23
+    ! LWP bins for MODIS joint histogram of liquid water path and liquid
+    ! effective radius
+    integer, parameter :: &
+        nLWP = 7 ! Number of bins for WLP/ReffLiq joint-histogram
+    real(wp),parameter,dimension(nLWP+1) :: &
+        LWP_binBounds = (/0., 0.01, 0.03, 0.06, 0.10, 0.15, 0.25, 20.0/) ! kg/m2
+    real(wp),parameter,dimension(2,nLWP) :: &
+        LWP_binEdges = reshape(source=(/LWP_binBounds(1),((LWP_binBounds(k),  &
+                                    l=1,2),k=2,nLWP),LWP_binBounds(nLWP+1)/),  &
+                                    shape = (/2,nLWP/))
+    real(wp),parameter,dimension(nLWP) :: &
+         LWP_binCenters = (LWP_binEdges(1,:)+LWP_binEdges(2,:))/2._wp
+
     ! ####################################################################################  
     ! Constants used by RTTOV.
     ! ####################################################################################  
@@ -267,6 +281,19 @@ MODULE MOD_COSP_CONFIG
          modis_histReffLiqCenters = reffICE_binCenters ! Effective radius bin centers
     real(wp),parameter,dimension(2,nReffICE) :: &
          modis_histReffLiqEdges = reffLIQ_binEdges     ! Effective radius bin edges
+
+    ! YQIN 04/04/23
+    ! ####################################################################################
+    ! MODIS simulator LWP/ReffLIQ joint-histogram information
+    ! ####################################################################################
+    integer,parameter :: &
+         numMODISLWPBins = nLWP                ! Number of bins for joint-histogram
+    real(wp),parameter,dimension(nLWP+1) :: &
+         modis_histLWP = LWP_binBounds     ! LWP bin boundaries 
+    real(wp),parameter,dimension(nLWP) :: &
+         modis_histLWPCenters = LWP_binCenters ! LWP bin centers
+    real(wp),parameter,dimension(2,nLWP) :: &
+         modis_histLWPEdges = LWP_binEdges     ! LWP bin edges
 
     ! ####################################################################################
     ! CLOUDSAT reflectivity histogram information 
