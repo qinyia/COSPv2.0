@@ -112,14 +112,15 @@ contains
   !       alogrithm in this simulator we simply report the values from the ISCCP simulator. 
   ! ########################################################################################
   subroutine modis_subcolumn(nSubCols, nLevels, pressureLevels, &
-                         temperature,             & ! YQIN 01/18/22 added
+                         temperature,             & ! YQIN 01/18/23 added
                          optical_thickness,       & 
                          tauLiquidFraction, g, w0,isccpCloudTopPressure,                 &
-                         isccpCloudTopTemperature, & ! YQIN 01/18/22 added
+                         isccpCloudTopTemperature, & ! YQIN 01/18/23 added
                          retrievedPhase, retrievedCloudTopPressure,                      &
-                         retrievedCloudTopTemperature, & ! YQIN 01/18/22 added
-                         retrievedCloudTopNd, & ! YQIN 01/18/22 added
-                         retrievedCloudTopLWP, & ! YQIN 01/26/22 added
+                         retrievedCloudTopTemperature, & ! YQIN 01/18/23 added
+                         retrievedCloudTopNd, & ! YQIN 01/18/23 added
+                         retrievedCloudTopLWP, & ! YQIN 01/26/23 added
+                         retrievedCloudTopTau, retrievedCloudTopSize, & ! YQIN 03/04/23 added
                          retrievedTau,   retrievedSize)
 
     ! INPUTS
@@ -129,7 +130,7 @@ contains
     real(wp),dimension(nLevels+1),intent(in) :: &
          pressureLevels               ! Gridmean pressure at layer edges (Pa)                  
 
-    ! YQIN 01/18/22
+    ! YQIN 01/18/23
     real(wp),dimension(nLevels),intent(in) :: &
          temperature                  ! Gridmean temperature   
 
@@ -140,16 +141,18 @@ contains
          w0                           ! Subcolumn single-scattering albedo 
     real(wp),dimension(nSubCols),intent(in) :: &
          isccpCloudTopPressure,     & ! ISCCP retrieved cloud top pressure (Pa)
-         isccpCloudTopTemperature     ! ISCCP retrieved cloud top temperature (K) ! YQIN 01/18/22 added
+         isccpCloudTopTemperature     ! ISCCP retrieved cloud top temperature (K) ! YQIN 01/18/23 added
 
     ! OUTPUTS
     integer, dimension(nSubCols), intent(inout) :: &
          retrievedPhase               ! MODIS retrieved phase (liquid/ice/other)              
     real(wp),dimension(nSubCols), intent(inout) :: &
          retrievedCloudTopPressure, & ! MODIS retrieved CTP (Pa)
-         retrievedCloudTopTemperature, & ! MODIS retrieved cloud top temperature (K) ! YQIN 01/18/22
-         retrievedCloudTopNd,       & ! MODIS retrieved Nd ! YQIN 01/18/22
+         retrievedCloudTopTemperature, & ! MODIS retrieved cloud top temperature (K) ! YQIN 01/18/23
+         retrievedCloudTopNd,       & ! MODIS retrieved Nd ! YQIN 01/18/23
          retrievedCloudTopLWP,      & ! MODIS retrieved LWP (same sampling as Nd) ! YQIN 
+         retrievedCloudTopTau,      & ! MODIS retrieved Tau (same sampling as Nd) ! YQIN
+         retrievedCloudTopSize,     & ! MODIS retrieved Size (same sampling as Nd) ! YQIN
          retrievedTau,              & ! MODIS retrieved optical depth (unitless)              
          retrievedSize                ! MODIS retrieved particle size (microns)              
 
@@ -190,7 +193,7 @@ contains
           retrievedCloudTopPressure(i) = cloud_top_pressure(nLevels,(/ 0._wp, optical_thickness(i,1:nLevels) /), &
                                                             pressureLevels(1:nLevels),CO2Slicing_TauLimit)  
         
-          ! YQIN 01/18/22 cloud top temperature determination following the above cloud top pressure method 
+          ! YQIN 01/18/23 cloud top temperature determination following the above cloud top pressure method 
           retrievedCloudTopTemperature(i) = cloud_top_temperature(nLevels,(/ 0._wp, optical_thickness(i,1:nLevels) /), &
                                                             temperature(1:nLevels),CO2Slicing_TauLimit)  
            
@@ -236,7 +239,7 @@ contains
        else   
           ! Values when we don't think there's a cloud. 
           retrievedCloudTopPressure(i) = R_UNDEF 
-          retrievedCloudTopTemperature(i) = R_UNDEF ! YQIN 01/18/22
+          retrievedCloudTopTemperature(i) = R_UNDEF ! YQIN 01/18/23
           retrievedPhase(i)            = phaseIsNone
           retrievedSize(i)             = R_UNDEF 
           retrievedTau(i)              = R_UNDEF 
@@ -250,11 +253,14 @@ contains
     ! Of course, ISCCP cloud top pressures are in mb.   
     where(cloudMask(1:nSubCols) .and. retrievedCloudTopPressure(1:nSubCols) > CO2Slicing_PressureLimit) &
          retrievedCloudTopPressure(1:nSubCols) = isccpCloudTopPressure! * 100._wp
-         retrievedCloudTopTemperature(1:nSubCols) = isccpCloudTopTemperature  ! YQIN 01/18/22
+         retrievedCloudTopTemperature(1:nSubCols) = isccpCloudTopTemperature  ! YQIN 01/18/23
     
-    ! YQIN 01/18/22 calculate the Nd 
+    ! YQIN 01/18/23 calculate the Nd 
     retrievedCloudTopNd(1:nSubCols)       = R_UNDEF
     retrievedCloudTopLWP(1:nSubCols)      = R_UNDEF
+    retrievedCloudTopTau(1:nSubCols)      = R_UNDEF
+    retrievedCloudTopSize(1:nSubCols)     = R_UNDEF
+
 
     do i = 1, nSubCols
         if (cloudMask(i) & ! cloudy pixel
@@ -265,8 +271,13 @@ contains
             if (retrievedCloudTopTemperature(i).eq.R_UNDEF .or. retrievedTau(i).eq.R_UNDEF .or. retrievedSize(i).eq.R_UNDEF) then
                 retrievedCloudTopNd(i) = R_UNDEF
                 retrievedCloudTopLWP(i) = R_UNDEF
+                retrievedCloudTopTau(i) = R_UNDEF
+                retrievedCloudTopSize(i) = R_UNDEF
+
             else
                 retrievedCloudTopLWP(i) = 2._wp/3._wp * 1000._wp * retrievedTau(i) * retrievedSize(i) ! derived LWP from Tau and Re
+                retrievedCloudTopTau(i) = retrievedTau(i)
+                retrievedCloudTopSize(i) = retrievedSize(i)
 
                 if (retrievedTau(i) * retrievedSize(i) > 0._wp) then ! ensure the derived LWP larger than zero because size has re_fill value
 
@@ -283,6 +294,8 @@ contains
                 else
                     retrievedCloudTopNd(i) = R_UNDEF
                     retrievedCloudTopLWP(i) = R_UNDEF
+                    retrievedCloudTopTau(i) = R_UNDEF
+                    retrievedCloudTopSize(i) = R_UNDEF
                 end if
             end if
         end if
@@ -292,15 +305,17 @@ contains
 
   ! ########################################################################################
   subroutine modis_column(nPoints,nSubCols,phase, cloud_top_pressure,  &
-       cloud_top_temperature, cloud_top_Nd, cloud_top_LWP, & ! YQIN 01/18/22
+       cloud_top_temperature, cloud_top_Nd, cloud_top_LWP, & ! YQIN 01/18/23
+       cloud_top_Tau, cloud_top_Size, & ! YQIN 04/03/23
        optical_thickness, particle_size,     &
        Cloud_Fraction_Total_Mean,         Cloud_Fraction_Water_Mean,         Cloud_Fraction_Ice_Mean,        &
-       Cloud_Fraction_Nd_Mean,            Cloud_Fraction_LWP_Mean, & ! YQIN 01/18/22
+       Cloud_Fraction_Nd_Mean,            Cloud_Fraction_LWP_Mean, & ! YQIN 01/18/23
        Cloud_Fraction_High_Mean,          Cloud_Fraction_Mid_Mean,           Cloud_Fraction_Low_Mean,        &
        Optical_Thickness_Total_Mean,      Optical_Thickness_Water_Mean,      Optical_Thickness_Ice_Mean,     &
        Optical_Thickness_Total_MeanLog10, Optical_Thickness_Water_MeanLog10, Optical_Thickness_Ice_MeanLog10,&
        Cloud_Particle_Size_Water_Mean,    Cloud_Particle_Size_Ice_Mean,      Cloud_Top_Pressure_Total_Mean,  &
-       Cloud_Top_Temperature_Total_Mean,  Cloud_Top_Nd_Total_Mean,           Cloud_top_LWP_Total_Mean,       & ! YQIN 01/18/22
+       Cloud_Top_Temperature_Total_Mean,  Cloud_Top_Nd_Total_Mean,           Cloud_top_LWP_Total_Mean,       & ! YQIN 01/18/23
+       Cloud_top_Tau_Total_Mean,          Cloud_Top_Size_Total_Mean,                                         & ! YQIN 04/04/23
        Liquid_Water_Path_Mean,            Ice_Water_Path_Mean,                                               &    
        Optical_Thickness_vs_Cloud_Top_Pressure,Optical_Thickness_vs_ReffIce,Optical_Thickness_vs_ReffLiq)
     
@@ -312,7 +327,8 @@ contains
          phase                             
     real(wp),intent(in),dimension(nPoints, nSubCols) ::  &
          cloud_top_pressure,                &
-         cloud_top_temperature, cloud_top_Nd, cloud_top_LWP, & ! YQIN 01/18/22
+         cloud_top_temperature, cloud_top_Nd, cloud_top_LWP, & ! YQIN 01/18/23
+         cloud_top_Tau, cloud_top_Size, & ! YQIN 04/03/23
          optical_thickness,                 &
          particle_size
  
@@ -320,7 +336,7 @@ contains
     real(wp),intent(inout),dimension(nPoints)  ::   & !
          Cloud_Fraction_Total_Mean,         & !
          Cloud_Fraction_Water_Mean,         & !
-         Cloud_Fraction_Nd_Mean,            & ! YQIN 01/18/22
+         Cloud_Fraction_Nd_Mean,            & ! YQIN 01/18/23
          Cloud_Fraction_LWP_Mean,           & ! YQIN 
          Cloud_Fraction_Ice_Mean,           & !
          Cloud_Fraction_High_Mean,          & !
@@ -335,9 +351,11 @@ contains
          Cloud_Particle_Size_Water_Mean,    & !
          Cloud_Particle_Size_Ice_Mean,      & !
          Cloud_Top_Pressure_Total_Mean,     & !
-         Cloud_Top_Temperature_Total_Mean,  & ! YQIN 01/18/22
+         Cloud_Top_Temperature_Total_Mean,  & ! YQIN 01/18/23
          Cloud_Top_Nd_Total_Mean,           & ! YQIN 
          Cloud_Top_LWP_Total_Mean,          & ! YQIN 
+         Cloud_Top_Tau_Total_Mean,          & ! YQIN
+         Cloud_Top_Size_Total_Mean,         & ! YQIN
          Liquid_Water_Path_Mean,            & !
          Ice_Water_Path_Mean                  !
     real(wp),intent(inout),dimension(nPoints,numMODISTauBins,numMODISPresBins) :: &
@@ -356,7 +374,7 @@ contains
          waterCloudMask, &
          iceCloudMask,   &
          validRetrievalMask, &
-         cloudNdMask, & ! YQIN 01/18/22
+         cloudNdMask, & ! YQIN 01/18/23
          cloudLWPMask ! YQIN 
 
     real(wp),dimension(nPoints,nSubCols) :: &
@@ -373,7 +391,7 @@ contains
     iceCloudMask(1:nPoints,1:nSubCols)   = phase(1:nPoints,1:nSubCols) == phaseIsIce .and.    &
          validRetrievalMask(1:nPoints,1:nSubCols)
     
-    ! YQIN 01/18/22
+    ! YQIN 01/18/23
     !cloudNdMask(1:nPoints,1:nSubCols) = cloud_top_Nd(1:nPoints,1:nSubCols) > 0.
     cloudNdMask(1:nPoints,1:nSubCols) = cloud_top_Nd(1:nPoints,1:nSubCols) .ne. R_UNDEF
     Cloud_Fraction_Nd_Mean(1:nPoints) = real(count(cloudNdMask, dim = 2))
@@ -439,7 +457,7 @@ contains
     Cloud_Top_Pressure_Total_Mean  = sum(cloud_top_pressure, mask = cloudMask, dim = 2) / &
                                      max(1, count(cloudMask, dim = 2))
 
-    ! YQIN 01/18/22
+    ! YQIN 01/18/23
     Cloud_Top_Temperature_Total_Mean  = sum(cloud_top_temperature, mask = cloudMask, dim = 2) / &
                                      max(1, count(cloudMask, dim = 2))
 
@@ -454,8 +472,14 @@ contains
     where(Cloud_Fraction_LWP_Mean(1:nPoints) > 0)
         Cloud_Top_LWP_Total_Mean(1:nPoints)  = sum(cloud_top_LWP, mask = cloudLWPMask, dim = 2) / &
                                                  Cloud_Fraction_LWP_Mean(1:nPoints)
+        Cloud_Top_Tau_Total_Mean(1:nPoints)  = sum(cloud_top_Tau, mask = cloudLWPMask, dim = 2) / &
+                                                 Cloud_Fraction_LWP_Mean(1:nPoints)
+        Cloud_Top_Size_Total_Mean(1:nPoints)  = sum(cloud_top_Size, mask = cloudLWPMask, dim = 2) / &
+                                                 Cloud_Fraction_LWP_Mean(1:nPoints)
     elsewhere
         Cloud_Top_LWP_Total_Mean = R_UNDEF
+        Cloud_Top_Tau_Total_Mean = R_UNDEF
+        Cloud_Top_Size_Total_Mean = R_UNDEF
     endwhere
 
     ! ########################################################################################
@@ -566,7 +590,7 @@ contains
   end function cloud_top_pressure
 
   ! ########################################################################################
-  ! YQIN 01/18/22 calculate cloud top temperature following the
+  ! YQIN 01/18/23 calculate cloud top temperature following the
   ! cloud_top_pressure function above. 
 
   function cloud_top_temperature(nLevels,tauIncrement, temperature, tauLimit) 
@@ -1050,7 +1074,7 @@ contains
   end subroutine adding_doubling
 
 ! ============================================================================================
-! YQIN 01/18/22 function to calculate Nd
+! YQIN 01/18/23 function to calculate Nd
 subroutine calNd_bennartz17(e3sm_cloud_top_temp,e3sm_modis_lwp_rel,e3sm_modis_cod_rel,CDNC)
 
     ! converted from Adam's python code to calculate CDNC from Bennartz (2007)
@@ -1099,7 +1123,7 @@ subroutine calNd_bennartz17(e3sm_cloud_top_temp,e3sm_modis_lwp_rel,e3sm_modis_co
 end subroutine calNd_bennartz17
 
 ! ============================================================================================
-! YQIN 01/26/22 function to calculate Nd (COD,REL)
+! YQIN 01/26/23 function to calculate Nd (COD,REL)
 subroutine calNd_grosvenor18(e3sm_cloud_top_temp,e3sm_modis_reff,e3sm_modis_cod_rel,CDNC)
 
     ! Based on Adam's python code to calculate CDNC with equation from Grosvenor et al (2018)
