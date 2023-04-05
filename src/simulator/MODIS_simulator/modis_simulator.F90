@@ -56,7 +56,8 @@ module mod_modis_sim
   USE MOD_COSP_CONFIG, only: R_UNDEF,modis_histTau,modis_histPres,numMODISTauBins,       &
                              numMODISPresBins,numMODISReffIceBins,numMODISReffLiqBins,   &
                              modis_histReffIce,modis_histReffLiq, &
-                             numMODISLWPBins ! YQIN 04/04/23
+                             modis_histLWP, & ! YQIN 04/04/23
+                             numMODISLWPBins 
   USE COSP_KINDS,      ONLY: wp
   use MOD_COSP_STATS,  ONLY: hist2D
 
@@ -243,9 +244,9 @@ contains
        Cloud_Particle_Size_Water_Mean,    Cloud_Particle_Size_Ice_Mean,      Cloud_Top_Pressure_Total_Mean,  &
        Liquid_Water_Path_Mean,            Ice_Water_Path_Mean,                                               &    
        Optical_Thickness_vs_Cloud_Top_Pressure,Optical_Thickness_vs_ReffIce,Optical_Thickness_vs_ReffLiq,    &
-       LWP_vs_ReffLiq,                              & ! YQIN 04/04/23 
-       Optical_Thickness_vs_Cloud_Top_Pressure_Liq, & 
-       Optical_Thickness_vs_Cloud_Top_Pressure_Ice  & ! YQIN 04/04/23
+       Optical_Thickness_vs_Cloud_Top_Pressure_Liq,  & ! YQIN 04/04/23
+       Optical_Thickness_vs_Cloud_Top_Pressure_Ice,  &
+       LWP_vs_ReffLiq                                &
        )
     
     ! INPUTS
