@@ -76,13 +76,24 @@ MODULE MOD_COSP_CONFIG
     ! Optical depth bin axis
     integer,parameter :: &
          ntau=7  
+
+    ! YQIN 04/04/23
+!    real(wp),parameter,dimension(ntau+1) :: &
+!       tau_binBounds = (/0.0, 0.3, 1.3, 3.6, 9.4, 23., 60., 10000./)
     real(wp),parameter,dimension(ntau+1) :: &
-       tau_binBounds = (/0.0, 0.3, 1.3, 3.6, 9.4, 23., 60., 10000./)
+       tau_binBounds = (/0.0, 0.3, 1.3, 3.6, 9.4, 23., 60., 150./)
+
     real(wp),parameter,dimension(ntau) :: &
          tau_binCenters = (/0.15, 0.80, 2.45, 6.5, 16.2, 41.5, 100.0/)
+
+    ! YQIN 04/04/23
+!    real(wp),parameter,dimension(2,ntau) :: &
+!         tau_binEdges = reshape(source=(/0.0, 0.3,  0.3,  1.3,  1.3,  3.6,      3.6,     &
+!                                         9.4, 9.4, 23.0, 23.0, 60.0, 60.0, 100000.0/),   &
+!                                         shape=(/2,ntau/)) 
     real(wp),parameter,dimension(2,ntau) :: &
          tau_binEdges = reshape(source=(/0.0, 0.3,  0.3,  1.3,  1.3,  3.6,      3.6,     &
-                                         9.4, 9.4, 23.0, 23.0, 60.0, 60.0, 100000.0/),   &
+                                         9.4, 9.4, 23.0, 23.0, 60.0, 60.0, 150.0/),   &
                                          shape=(/2,ntau/)) 
 
     ! Optical depth bin axes (ONLY USED BY MODIS SIMULATOR IN v1.4)
@@ -100,12 +111,23 @@ MODULE MOD_COSP_CONFIG
     ! Cloud-top height pressure bin axis
     integer,parameter :: &
          npres = 7     
+
+    ! YQIN 04/04/23
+!    real(wp),parameter,dimension(npres+1) :: &
+!         pres_binBounds = (/0., 180., 310., 440., 560., 680., 800., 10000./)
     real(wp),parameter,dimension(npres+1) :: &
-         pres_binBounds = (/0., 180., 310., 440., 560., 680., 800., 10000./)
+         pres_binBounds = (/0., 180., 310., 440., 560., 680., 800., 11000./)
+
     real(wp),parameter,dimension(npres) :: &
          pres_binCenters = (/90000., 74000., 62000., 50000., 37500., 24500., 9000./)   
+    ! YQIN 04/04/23
+!    real(wp),parameter,dimension(2,npres) :: &
+!         pres_binEdges = reshape(source=(/100000.0, 80000.0, 80000.0, 68000.0, 68000.0,    &
+!                                           56000.0, 56000.0, 44000.0, 44000.0, 31000.0,    &
+!                                           31000.0, 18000.0, 18000.0,     0.0/),           &
+!                                           shape=(/2,npres/))
     real(wp),parameter,dimension(2,npres) :: &
-         pres_binEdges = reshape(source=(/100000.0, 80000.0, 80000.0, 68000.0, 68000.0,    &
+         pres_binEdges = reshape(source=(/110000.0, 80000.0, 80000.0, 68000.0, 68000.0,    &
                                            56000.0, 56000.0, 44000.0, 44000.0, 31000.0,    &
                                            31000.0, 18000.0, 18000.0,     0.0/),           &
                                            shape=(/2,npres/))
@@ -131,8 +153,12 @@ MODULE MOD_COSP_CONFIG
     integer,parameter :: &
          nReffLiq = 6, & ! Number of bins for tau/ReffLiq joint-histogram
          nReffIce = 6    ! Number of bins for tau/ReffICE joint-histogram
+    ! YQIN 04/04/23 change reffLIQ bins following Casey's requirement
+!    real(wp),parameter,dimension(nReffLiq+1) :: &
+!         reffLIQ_binBounds = (/0., 8e-6, 1.0e-5, 1.3e-5, 1.5e-5, 2.0e-5, 3.0e-5/)
     real(wp),parameter,dimension(nReffLiq+1) :: &
-         reffLIQ_binBounds = (/0., 8e-6, 1.0e-5, 1.3e-5, 1.5e-5, 2.0e-5, 3.0e-5/)
+         reffLIQ_binBounds = (/4.0e-6, 8e-6, 1.0e-5, 1.25e-5, 1.5e-5, 2.0e-5, 3.0e-5/)
+
     real(wp),parameter,dimension(nReffIce+1) :: &
          reffICE_binBounds = (/0., 1.0e-5, 2.0e-5, 3.0e-5, 4.0e-5, 6.0e-5, 9.0e-5/)
     real(wp),parameter,dimension(2,nReffICE) :: &
