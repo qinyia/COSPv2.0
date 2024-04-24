@@ -246,7 +246,8 @@ contains
        Optical_Thickness_vs_Cloud_Top_Pressure,Optical_Thickness_vs_ReffIce,Optical_Thickness_vs_ReffLiq,    &
        Optical_Thickness_vs_Cloud_Top_Pressure_Liq,  & ! YQIN 04/04/23
        Optical_Thickness_vs_Cloud_Top_Pressure_Ice,  &
-       LWP_vs_ReffLiq                                &
+       LWP_vs_ReffLiq,                               &
+       IWP_vs_ReffIce & ! YQIN 04/24/24
        )
     
     ! INPUTS
@@ -286,6 +287,9 @@ contains
     ! YQIN 04/04/23
     real(wp),intent(inout),dimension(nPoints,numMODISLWPBins,numMODISReffLiqBins) :: &    
          LWP_vs_ReffLiq
+    ! YQIN 04/24/24
+    real(wp),intent(inout),dimension(nPoints,numMODISLWPBins,numMODISReffIceBins) :: &    
+         IWP_vs_ReffIce
 
     real(wp),intent(inout),dimension(nPoints,numMODISTauBins,numMODISReffIceBins) :: &    
          Optical_Thickness_vs_ReffIce
@@ -303,7 +307,8 @@ contains
          validRetrievalMask
     real(wp),dimension(nPoints,nSubCols) :: &
          tauWRK,ctpWRK,reffIceWRK,reffLiqWRK, &
-         tauLiqWRK,tauIceWRK,lwpWRK ! YQIN 04/04/23
+         tauLiqWRK,tauIceWRK,lwpWRK, & ! YQIN 04/04/23
+         iwpWRK ! 04/24/24
 
     ! ########################################################################################
     ! Include only those pixels with successful retrievals in the statistics 
@@ -397,6 +402,8 @@ contains
     tauLiqWRK(1:nPoints,1:nSubCols) = merge(optical_thickness,R_UNDEF,waterCloudMask)
     tauIceWRK(1:nPoints,1:nSubCols) = merge(optical_thickness,R_UNDEF,iceCloudMask)
     lwpWRK(1:nPoints,1:nSubCols)    = merge(LWP_conversion*particle_size*optical_thickness,R_UNDEF,waterCloudMask)
+    ! YQIN 04/24/24
+    iwpWRK(1:nPoints,1:nSubCols)    = merge(LWP_conversion*ice_density*particle_size*optical_thickness,R_UNDEF,iceCloudMask)
 
     do j=1,nPoints
 
@@ -408,6 +415,9 @@ contains
           tauLiqWRK(j,1:nSubCols) = -999._wp
           tauIceWRK(j,1:nSubCols) = -999._wp
           lwpWRK(j,1:nSubCols)    = -999._wp
+          ! YQIN 04/24/24
+          iwpWRK(j,1:nSubCols)    = -999._wp
+
        endwhere
        ! Joint histogram of tau/CTP
        call hist2D(tauWRK(j,1:nSubCols),ctpWRK(j,1:nSubCols),nSubCols,&
@@ -430,6 +440,11 @@ contains
        call hist2D(lwpWRK(j,1:nSubCols),reffLiqWRK(j,1:nSubCols),nSubCols,               &
                    modis_histLWP,numMODISLWPBins,modis_histReffLiq,         &
                    numMODISReffLiqBins, LWP_vs_ReffLiq(j,1:numMODISLWPBins,1:numMODISReffLiqBins))                   
+
+       ! Joint histogram of IWP/ReffIce  - YQIN 04/24/24 
+       call hist2D(iwpWRK(j,1:nSubCols),reffIceWRK(j,1:nSubCols),nSubCols,               &
+                   modis_histLWP,numMODISLWPBins,modis_histReffIce,         &
+                   numMODISReffIceBins, IWP_vs_ReffIce(j,1:numMODISLWPBins,1:numMODISReffIceBins))                   
        ! -- end 
 
        ! Joint histogram of tau/ReffICE
@@ -451,6 +466,10 @@ contains
          Optical_Thickness_vs_Cloud_Top_Pressure_Ice(1:nPoints,1:numMODISTauBins,1:numMODISPresBins)/nSubCols
     LWP_vs_ReffLiq(1:nPoints,1:numMODISLWPBins,1:numMODISReffLiqBins) = &
          LWP_vs_ReffLiq(1:nPoints,1:numMODISLWPBins,1:numMODISReffLiqBins)/nSubCols 
+    ! YQIN 04/24/24
+    IWP_vs_ReffIce(1:nPoints,1:numMODISLWPBins,1:numMODISReffIceBins) = &
+         IWP_vs_ReffIce(1:nPoints,1:numMODISLWPBins,1:numMODISReffIceBins)/nSubCols 
+
 
     Optical_Thickness_vs_ReffIce(1:nPoints,1:numMODISTauBins,1:numMODISReffIceBins) = &
          Optical_Thickness_vs_ReffIce(1:nPoints,1:numMODISTauBins,1:numMODISReffIceBins)/nSubCols
@@ -468,6 +487,8 @@ contains
     where(Optical_Thickness_vs_Cloud_Top_Pressure_Ice /= R_UNDEF) &
       Optical_Thickness_vs_Cloud_Top_Pressure_Ice = Optical_Thickness_vs_Cloud_Top_Pressure_Ice*100._wp
     where(LWP_vs_ReffLiq /= R_UNDEF) LWP_vs_ReffLiq = LWP_vs_ReffLiq*100._wp
+    ! YQIN 04/24/24
+    where(IWP_vs_ReffIce /= R_UNDEF) IWP_vs_ReffIce = IWP_vs_ReffIce*100._wp
 
     where(Optical_Thickness_vs_ReffIce /= R_UNDEF) Optical_Thickness_vs_ReffIce = Optical_Thickness_vs_ReffIce*100._wp
     where(Optical_Thickness_vs_ReffLiq /= R_UNDEF) Optical_Thickness_vs_ReffLiq = Optical_Thickness_vs_ReffLiq*100._wp
