@@ -57,7 +57,9 @@ module mod_modis_sim
                              numMODISPresBins,numMODISReffIceBins,numMODISReffLiqBins,   &
                              modis_histReffIce,modis_histReffLiq, &
                              modis_histLWP, & ! YQIN 04/04/23
-                             numMODISLWPBins 
+                             numMODISLWPBins, &
+                             modis_histIWP, & ! YQIN 04/24/24
+                             numMODISIWPBins 
   USE COSP_KINDS,      ONLY: wp
   use MOD_COSP_STATS,  ONLY: hist2D
 
@@ -113,9 +115,19 @@ contains
   !       and reverts to a thermal algorithm much like ISCCP's. Rather than replicate that 
   !       alogrithm in this simulator we simply report the values from the ISCCP simulator. 
   ! ########################################################################################
-  subroutine modis_subcolumn(nSubCols, nLevels, pressureLevels, optical_thickness,       & 
+  subroutine modis_subcolumn(nSubCols, nLevels, pressureLevels, &
+                         temperature,             & ! YQIN 01/18/23 added
+                         optical_thickness,       & 
                          tauLiquidFraction, g, w0,isccpCloudTopPressure,                 &
+                         isccpCloudTopTemperature, & ! YQIN 01/18/23 added
                          retrievedPhase, retrievedCloudTopPressure,                      &
+                         retrievedCloudTopTemperature, & ! YQIN 01/18/23 added
+                         retrievedCloudTopNd_Q06, & ! YQIN 01/18/23 added
+                         retrievedCloudTopLWP_Q06, & ! YQIN 01/26/23 added
+                         retrievedCloudTopTau_Q06, retrievedCloudTopSize_Q06, & ! YQIN 03/04/23 added
+                         retrievedCloudTopNd_ALL, & ! YQIN 02/29/24 added
+                         retrievedCloudTopLWP_ALL, & ! YQIN 
+                         retrievedCloudTopTau_ALL, retrievedCloudTopSize_ALL, & ! YQIN 03/04/23 added
                          retrievedTau,   retrievedSize)
 
     ! INPUTS
@@ -124,19 +136,34 @@ contains
          nLevels                      ! Number of levels         
     real(wp),dimension(nLevels+1),intent(in) :: &
          pressureLevels               ! Gridmean pressure at layer edges (Pa)                  
+
+    ! YQIN 01/18/23
+    real(wp),dimension(nLevels),intent(in) :: &
+         temperature                  ! Gridmean temperature   
+
     real(wp),dimension(nSubCols,nLevels),intent(in) :: &
          optical_thickness,         & ! Subcolumn optical thickness @ 0.67 microns.
          tauLiquidFraction,         & ! Liquid water fraction
          g,                         & ! Subcolumn assymetry parameter  
          w0                           ! Subcolumn single-scattering albedo 
     real(wp),dimension(nSubCols),intent(in) :: &
-         isccpCloudTopPressure        ! ISCCP retrieved cloud top pressure (Pa)
+         isccpCloudTopPressure,     & ! ISCCP retrieved cloud top pressure (Pa)
+         isccpCloudTopTemperature     ! ISCCP retrieved cloud top temperature (K) ! YQIN 01/18/23 added
 
     ! OUTPUTS
     integer, dimension(nSubCols), intent(inout) :: &
          retrievedPhase               ! MODIS retrieved phase (liquid/ice/other)              
     real(wp),dimension(nSubCols), intent(inout) :: &
          retrievedCloudTopPressure, & ! MODIS retrieved CTP (Pa)
+         retrievedCloudTopTemperature, & ! MODIS retrieved cloud top temperature (K) ! YQIN 01/18/23
+         retrievedCloudTopNd_Q06,       & ! MODIS retrieved Nd ! YQIN 01/18/23
+         retrievedCloudTopLWP_Q06,      & ! MODIS retrieved LWP (same sampling as Nd) ! YQIN 
+         retrievedCloudTopTau_Q06,      & ! MODIS retrieved Tau (same sampling as Nd) ! YQIN
+         retrievedCloudTopSize_Q06,     & ! MODIS retrieved Size (same sampling as Nd) ! YQIN
+         retrievedCloudTopNd_ALL,       & ! MODIS retrieved Nd ! YQIN 02/29/24
+         retrievedCloudTopLWP_ALL,      & ! MODIS retrieved LWP (same sampling as Nd) ! YQIN 
+         retrievedCloudTopTau_ALL,      & ! MODIS retrieved Tau (same sampling as Nd) ! YQIN
+         retrievedCloudTopSize_ALL,     & ! MODIS retrieved Size (same sampling as Nd) ! YQIN
          retrievedTau,              & ! MODIS retrieved optical depth (unitless)              
          retrievedSize                ! MODIS retrieved particle size (microns)              
 
@@ -177,6 +204,10 @@ contains
           retrievedCloudTopPressure(i) = cloud_top_pressure(nLevels,(/ 0._wp, optical_thickness(i,1:nLevels) /), &
                                                             pressureLevels(1:nLevels),CO2Slicing_TauLimit)  
         
+          ! YQIN 01/18/23 cloud top temperature determination following the above cloud top pressure method 
+          retrievedCloudTopTemperature(i) = cloud_top_temperature(nLevels,(/ 0._wp, optical_thickness(i,1:nLevels) /), &
+                                                            temperature(1:nLevels),CO2Slicing_TauLimit)  
+           
           ! ##################################################################################
           !                               Phase determination 
           ! Determine fraction of total tau that's liquid when ice and water contribute about 
@@ -219,6 +250,7 @@ contains
        else   
           ! Values when we don't think there's a cloud. 
           retrievedCloudTopPressure(i) = R_UNDEF 
+          retrievedCloudTopTemperature(i) = R_UNDEF ! YQIN 01/18/23
           retrievedPhase(i)            = phaseIsNone
           retrievedSize(i)             = R_UNDEF 
           retrievedTau(i)              = R_UNDEF 
@@ -232,23 +264,128 @@ contains
     ! Of course, ISCCP cloud top pressures are in mb.   
     where(cloudMask(1:nSubCols) .and. retrievedCloudTopPressure(1:nSubCols) > CO2Slicing_PressureLimit) &
          retrievedCloudTopPressure(1:nSubCols) = isccpCloudTopPressure! * 100._wp
+         retrievedCloudTopTemperature(1:nSubCols) = isccpCloudTopTemperature  ! YQIN 01/18/23
+    
+    ! YQIN 01/18/23 calculate the Nd 
+    retrievedCloudTopNd_Q06(1:nSubCols)       = R_UNDEF
+    retrievedCloudTopLWP_Q06(1:nSubCols)      = R_UNDEF
+    retrievedCloudTopTau_Q06(1:nSubCols)      = R_UNDEF
+    retrievedCloudTopSize_Q06(1:nSubCols)     = R_UNDEF
+
+    retrievedCloudTopNd_ALL(1:nSubCols)       = R_UNDEF
+    retrievedCloudTopLWP_ALL(1:nSubCols)      = R_UNDEF
+    retrievedCloudTopTau_ALL(1:nSubCols)      = R_UNDEF
+    retrievedCloudTopSize_ALL(1:nSubCols)     = R_UNDEF
+
+
+    do i = 1, nSubCols
+        ! Sampling: Q06 method 
+        if (cloudMask(i) & ! cloudy pixel
+           .and. (retrievedPhase(i) == phaseIsLiquid) & ! liquid clouds
+           .and. (retrievedCloudTopTemperature(i) > 268._wp .and. retrievedCloudTopTemperature(i) < 300._wp) & ! 268 K < CTT < 300 K
+           .and. (retrievedTau(i) > 4._wp .and. retrievedSize(i) > 4.0e-6_wp)) then
+
+            if (retrievedCloudTopTemperature(i).eq.R_UNDEF .or. retrievedTau(i).eq.R_UNDEF .or. retrievedSize(i).eq.R_UNDEF) then
+                retrievedCloudTopNd_Q06(i) = R_UNDEF
+                retrievedCloudTopLWP_Q06(i) = R_UNDEF
+                retrievedCloudTopTau_Q06(i) = R_UNDEF
+                retrievedCloudTopSize_Q06(i) = R_UNDEF
+
+            else
+                retrievedCloudTopLWP_Q06(i) = 5._wp/9._wp * 1000._wp * retrievedTau(i) * retrievedSize(i) ! derived LWP from Tau and Re
+                retrievedCloudTopTau_Q06(i) = retrievedTau(i)
+                retrievedCloudTopSize_Q06(i) = retrievedSize(i)
+
+                if (retrievedTau(i) * retrievedSize(i) > 0._wp) then ! ensure the derived LWP larger than zero because size has re_fill value
+
+                    !call calNd_bennartz17(retrievedCloudTopTemperature(i), &
+                    !                      2._wp/3._wp * 1000._wp * retrievedTau(i) * retrievedSize(i), & ! derived LWP from Tau and Re
+                    !                      retrievedTau(i), &
+                    !                      retrievedCloudTopNd(i))
+
+                    call calNd_grosvenor18(retrievedCloudTopTemperature(i), &
+                                          retrievedSize(i), & 
+                                          retrievedTau(i), &
+                                          retrievedCloudTopNd_Q06(i))
+                    !write (*,*) 'calculating Nd...', 'temp=',retrievedCloudTopTemperature(i), 'tau=',retrievedTau(i), 'size=',retrievedSize(i), 'Nd=',retrievedCloudTopNd(i)
+                else
+                    retrievedCloudTopNd_Q06(i) = R_UNDEF
+                    retrievedCloudTopLWP_Q06(i) = R_UNDEF
+                    retrievedCloudTopTau_Q06(i) = R_UNDEF
+                    retrievedCloudTopSize_Q06(i) = R_UNDEF
+                end if
+            end if
+        end if
+
+        ! Sampling: ALL method 
+        if (cloudMask(i) & ! cloudy pixel
+           .and. (retrievedPhase(i) == phaseIsLiquid) & ! liquid clouds
+           .and. (retrievedCloudTopTemperature(i) > 268._wp .and. retrievedCloudTopTemperature(i) < 300._wp) & ! 268 K < CTT < 300 K
+            ) then
+
+            if (retrievedCloudTopTemperature(i).eq.R_UNDEF .or. retrievedTau(i).eq.R_UNDEF .or. retrievedSize(i).eq.R_UNDEF) then
+                retrievedCloudTopNd_ALL(i) = R_UNDEF
+                retrievedCloudTopLWP_ALL(i) = R_UNDEF
+                retrievedCloudTopTau_ALL(i) = R_UNDEF
+                retrievedCloudTopSize_ALL(i) = R_UNDEF
+
+            else
+                retrievedCloudTopLWP_ALL(i) = 5._wp/9._wp * 1000._wp * retrievedTau(i) * retrievedSize(i) ! derived LWP from Tau and Re
+                retrievedCloudTopTau_ALL(i) = retrievedTau(i)
+                retrievedCloudTopSize_ALL(i) = retrievedSize(i)
+
+                if (retrievedTau(i) * retrievedSize(i) > 0._wp) then ! ensure the derived LWP larger than zero because size has re_fill value
+
+                    !call calNd_bennartz17(retrievedCloudTopTemperature(i), &
+                    !                      2._wp/3._wp * 1000._wp * retrievedTau(i) * retrievedSize(i), & ! derived LWP from Tau and Re
+                    !                      retrievedTau(i), &
+                    !                      retrievedCloudTopNd(i))
+
+                    call calNd_grosvenor18(retrievedCloudTopTemperature(i), &
+                                          retrievedSize(i), & 
+                                          retrievedTau(i), &
+                                          retrievedCloudTopNd_ALL(i))
+                    !write (*,*) 'calculating Nd...', 'temp=',retrievedCloudTopTemperature(i), 'tau=',retrievedTau(i), 'size=',retrievedSize(i), 'Nd=',retrievedCloudTopNd(i)
+                else
+                    retrievedCloudTopNd_ALL(i) = R_UNDEF
+                    retrievedCloudTopLWP_ALL(i) = R_UNDEF
+                    retrievedCloudTopTau_ALL(i) = R_UNDEF
+                    retrievedCloudTopSize_ALL(i) = R_UNDEF
+                end if
+            end if
+        end if
+
+    end do ! i
     
   end subroutine modis_subcolumn
 
   ! ########################################################################################
-  subroutine modis_column(nPoints,nSubCols,phase, cloud_top_pressure, optical_thickness, particle_size,     &
+  subroutine modis_column(nPoints,nSubCols,phase, cloud_top_pressure,  &
+       cloud_top_temperature, & ! YQIN 01/18/23
+       cloud_top_Nd_Q06, cloud_top_LWP_Q06, & ! YQIN 01/18/23
+       cloud_top_Tau_Q06, cloud_top_Size_Q06, & ! YQIN 04/03/23
+       cloud_top_Nd_ALL, cloud_top_LWP_ALL, & ! YQIN 02/29/24
+       cloud_top_Tau_ALL, cloud_top_Size_ALL, & ! YQIN
+       optical_thickness, particle_size,     &
        Cloud_Fraction_Total_Mean,         Cloud_Fraction_Water_Mean,         Cloud_Fraction_Ice_Mean,        &
+       Cloud_Fraction_Nd_Q06_Mean,  & ! YQIN 01/18/23
+       Cloud_Fraction_Nd_ALL_Mean,  & ! YQIN 02/29/24
        Cloud_Fraction_High_Mean,          Cloud_Fraction_Mid_Mean,           Cloud_Fraction_Low_Mean,        &
        Optical_Thickness_Total_Mean,      Optical_Thickness_Water_Mean,      Optical_Thickness_Ice_Mean,     &
        Optical_Thickness_Total_MeanLog10, Optical_Thickness_Water_MeanLog10, Optical_Thickness_Ice_MeanLog10,&
        Cloud_Particle_Size_Water_Mean,    Cloud_Particle_Size_Ice_Mean,      Cloud_Top_Pressure_Total_Mean,  &
+       Cloud_Top_Temperature_Total_Mean,  & !YQIN 01/18/23
+       Cloud_Top_Nd_Q06_Total_Mean,           Cloud_top_LWP_Q06_Total_Mean,       & ! YQIN 01/18/23
+       Cloud_top_Tau_Q06_Total_Mean,          Cloud_Top_Size_Q06_Total_Mean,                                         & ! YQIN 04/04/23
+       Cloud_Top_Nd_ALL_Total_Mean,           Cloud_top_LWP_ALL_Total_Mean,       & ! YQIN 02/29/24
+       Cloud_top_Tau_ALL_Total_Mean,          Cloud_Top_Size_ALL_Total_Mean,                                         & ! YQIN
        Liquid_Water_Path_Mean,            Ice_Water_Path_Mean,                                               &    
        Optical_Thickness_vs_Cloud_Top_Pressure,Optical_Thickness_vs_ReffIce,Optical_Thickness_vs_ReffLiq,    &
        Optical_Thickness_vs_Cloud_Top_Pressure_Liq,  & ! YQIN 04/04/23
        Optical_Thickness_vs_Cloud_Top_Pressure_Ice,  &
        LWP_vs_ReffLiq,                               &
-       IWP_vs_ReffIce & ! YQIN 04/24/24
-       )
+       IWP_vs_ReffIce, & ! YQIN 04/24/24
+       modis_CloudMask )
     
     ! INPUTS
     integer,intent(in) :: &
@@ -258,6 +395,11 @@ contains
          phase                             
     real(wp),intent(in),dimension(nPoints, nSubCols) ::  &
          cloud_top_pressure,                &
+         cloud_top_temperature, & ! YQIN 01/18/23 
+         cloud_top_Nd_Q06, cloud_top_LWP_Q06, & ! YQIN 01/18/23
+         cloud_top_Tau_Q06, cloud_top_Size_Q06, & ! YQIN 04/03/23
+         cloud_top_Nd_ALL, cloud_top_LWP_ALL, & ! YQIN 02/29/24
+         cloud_top_Tau_ALL, cloud_top_Size_ALL, & ! YQIN
          optical_thickness,                 &
          particle_size
  
@@ -265,6 +407,8 @@ contains
     real(wp),intent(inout),dimension(nPoints)  ::   & !
          Cloud_Fraction_Total_Mean,         & !
          Cloud_Fraction_Water_Mean,         & !
+         Cloud_Fraction_Nd_Q06_Mean,            & ! YQIN 01/18/23
+         Cloud_Fraction_Nd_ALL_Mean,            & ! YQIN 02/29/24
          Cloud_Fraction_Ice_Mean,           & !
          Cloud_Fraction_High_Mean,          & !
          Cloud_Fraction_Mid_Mean,           & !
@@ -278,6 +422,15 @@ contains
          Cloud_Particle_Size_Water_Mean,    & !
          Cloud_Particle_Size_Ice_Mean,      & !
          Cloud_Top_Pressure_Total_Mean,     & !
+         Cloud_Top_Temperature_Total_Mean,  & ! YQIN 01/18/23
+         Cloud_Top_Nd_Q06_Total_Mean,           & ! YQIN 
+         Cloud_Top_LWP_Q06_Total_Mean,          & ! YQIN 
+         Cloud_Top_Tau_Q06_Total_Mean,          & ! YQIN
+         Cloud_Top_Size_Q06_Total_Mean,         & ! YQIN
+         Cloud_Top_Nd_ALL_Total_Mean,           & ! YQIN  02/29/24
+         Cloud_Top_LWP_ALL_Total_Mean,          & ! YQIN 
+         Cloud_Top_Tau_ALL_Total_Mean,          & ! YQIN
+         Cloud_Top_Size_ALL_Total_Mean,         & ! YQIN
          Liquid_Water_Path_Mean,            & !
          Ice_Water_Path_Mean                  !
     real(wp),intent(inout),dimension(nPoints,numMODISTauBins,numMODISPresBins) :: &
@@ -288,23 +441,28 @@ contains
     real(wp),intent(inout),dimension(nPoints,numMODISLWPBins,numMODISReffLiqBins) :: &    
          LWP_vs_ReffLiq
     ! YQIN 04/24/24
-    real(wp),intent(inout),dimension(nPoints,numMODISLWPBins,numMODISReffIceBins) :: &    
+    real(wp),intent(inout),dimension(nPoints,numMODISIWPBins,numMODISReffIceBins) :: &    
          IWP_vs_ReffIce
 
     real(wp),intent(inout),dimension(nPoints,numMODISTauBins,numMODISReffIceBins) :: &    
          Optical_Thickness_vs_ReffIce
     real(wp),intent(inout),dimension(nPoints,numMODISTauBins,numMODISReffLiqBins) :: &    
          Optical_Thickness_vs_ReffLiq         
+    real(wp), dimension(nPoints,nSubCols) :: &
+        modis_CloudMask
 
     ! LOCAL VARIABLES
     real(wp), parameter :: &
-         LWP_conversion = 2._wp/3._wp * 1000._wp ! MKS units  
-    integer :: j
+         LWP_conversion = 5._wp/9._wp * 1000._wp ! MKS units  
+    integer :: j, i
     logical, dimension(nPoints,nSubCols) :: &
          cloudMask,      &
          waterCloudMask, &
          iceCloudMask,   &
-         validRetrievalMask
+         validRetrievalMask, &
+         cloudNdMask_Q06, & ! YQIN 01/18/23
+         cloudNdMask_ALL  ! YQIN 02/29/24
+
     real(wp),dimension(nPoints,nSubCols) :: &
          tauWRK,ctpWRK,reffIceWRK,reffLiqWRK, &
          tauLiqWRK,tauIceWRK,lwpWRK, & ! YQIN 04/04/23
@@ -321,6 +479,14 @@ contains
     iceCloudMask(1:nPoints,1:nSubCols)   = phase(1:nPoints,1:nSubCols) == phaseIsIce .and.    &
          validRetrievalMask(1:nPoints,1:nSubCols)
     
+    ! YQIN 01/18/23
+    !cloudNdMask(1:nPoints,1:nSubCols) = cloud_top_Nd(1:nPoints,1:nSubCols) > 0.
+    cloudNdMask_Q06(1:nPoints,1:nSubCols) = cloud_top_Nd_Q06(1:nPoints,1:nSubCols) .ne. R_UNDEF
+    cloudNdMask_ALL(1:nPoints,1:nSubCols) = cloud_top_Nd_ALL(1:nPoints,1:nSubCols) .ne. R_UNDEF
+
+    Cloud_Fraction_Nd_Q06_Mean(1:nPoints) = real(count(cloudNdMask_Q06, dim = 2))
+    Cloud_Fraction_Nd_ALL_Mean(1:nPoints) = real(count(cloudNdMask_ALL, dim = 2))
+
     ! ########################################################################################
     ! Use these as pixel counts at first 
     ! ########################################################################################
@@ -379,6 +545,54 @@ contains
     Cloud_Top_Pressure_Total_Mean  = sum(cloud_top_pressure, mask = cloudMask, dim = 2) / &
                                      max(1, count(cloudMask, dim = 2))
 
+    ! YQIN 01/18/23
+    Cloud_Top_Temperature_Total_Mean  = sum(cloud_top_temperature, mask = cloudMask, dim = 2) / &
+                                     max(1, count(cloudMask, dim = 2))
+
+    where(Cloud_Fraction_Nd_Q06_Mean(1:nPoints) > 0)
+        Cloud_Top_Nd_Q06_Total_Mean(1:nPoints)  = sum(cloud_top_Nd_Q06, mask = cloudNdMask_Q06, dim = 2) / &
+                                                 Cloud_Fraction_Nd_Q06_Mean(1:nPoints)
+    elsewhere
+        Cloud_Top_Nd_Q06_Total_Mean = R_UNDEF
+    endwhere
+
+    where(Cloud_Fraction_Nd_ALL_Mean(1:nPoints) > 0)
+        Cloud_Top_Nd_ALL_Total_Mean(1:nPoints)  = sum(cloud_top_Nd_ALL, mask = cloudNdMask_ALL, dim = 2) / &
+                                                 Cloud_Fraction_Nd_ALL_Mean(1:nPoints)
+    elsewhere
+        Cloud_Top_Nd_ALL_Total_Mean = R_UNDEF
+    endwhere
+
+    !write(*,*) 'PMA Nd     = ',Cloud_Top_Nd_Q06_Total_Mean
+    !write(*,*) 'PMA Nd  CF = ',Cloud_Fraction_Nd_Mean
+    !write(*,*) 'PMA LWP CF = ',Cloud_Fraction_LWP_Mean
+
+    where(Cloud_Fraction_Nd_Q06_Mean(1:nPoints) > 0)
+        Cloud_Top_LWP_Q06_Total_Mean(1:nPoints)  = sum(cloud_top_LWP_Q06, mask = cloudNdMask_Q06, dim = 2) / &
+                                                 Cloud_Fraction_Nd_Q06_Mean(1:nPoints)
+        Cloud_Top_Tau_Q06_Total_Mean(1:nPoints)  = sum(cloud_top_Tau_Q06, mask = cloudNdMask_Q06, dim = 2) / &
+                                                 Cloud_Fraction_Nd_Q06_Mean(1:nPoints)
+        Cloud_Top_Size_Q06_Total_Mean(1:nPoints)  = sum(cloud_top_Size_Q06, mask = cloudNdMask_Q06, dim = 2) / &
+                                                 Cloud_Fraction_Nd_Q06_Mean(1:nPoints)
+    elsewhere
+        Cloud_Top_LWP_Q06_Total_Mean = R_UNDEF
+        Cloud_Top_Tau_Q06_Total_Mean = R_UNDEF
+        Cloud_Top_Size_Q06_Total_Mean = R_UNDEF
+    endwhere
+
+    where(Cloud_Fraction_Nd_ALL_Mean(1:nPoints) > 0)
+        Cloud_Top_LWP_ALL_Total_Mean(1:nPoints)  = sum(cloud_top_LWP_ALL, mask = cloudNdMask_ALL, dim = 2) / &
+                                                 Cloud_Fraction_Nd_ALL_Mean(1:nPoints)
+        Cloud_Top_Tau_ALL_Total_Mean(1:nPoints)  = sum(cloud_top_Tau_ALL, mask = cloudNdMask_ALL, dim = 2) / &
+                                                 Cloud_Fraction_Nd_ALL_Mean(1:nPoints)
+        Cloud_Top_Size_ALL_Total_Mean(1:nPoints)  = sum(cloud_top_Size_ALL, mask = cloudNdMask_ALL, dim = 2) / &
+                                                 Cloud_Fraction_Nd_ALL_Mean(1:nPoints)
+    elsewhere
+        Cloud_Top_LWP_ALL_Total_Mean = R_UNDEF
+        Cloud_Top_Tau_ALL_Total_Mean = R_UNDEF
+        Cloud_Top_Size_ALL_Total_Mean = R_UNDEF
+    endwhere
+
     ! ########################################################################################
     ! Normalize pixel counts to fraction. 
     ! ########################################################################################
@@ -389,6 +603,10 @@ contains
     Cloud_Fraction_Ice_Mean(1:nPoints)   = Cloud_Fraction_Ice_Mean(1:nPoints)   /nSubcols
     Cloud_Fraction_Water_Mean(1:nPoints) = Cloud_Fraction_Water_Mean(1:nPoints) /nSubcols
     
+    ! YQIN 
+    Cloud_Fraction_Nd_Q06_Mean(1:nPoints)    = Cloud_Fraction_Nd_Q06_Mean(1:nPoints)  / nSubcols
+    Cloud_Fraction_Nd_ALL_Mean(1:nPoints)    = Cloud_Fraction_Nd_ALL_Mean(1:nPoints)  / nSubcols
+  
     ! ########################################################################################
     ! Joint histograms
     ! ########################################################################################
@@ -443,8 +661,8 @@ contains
 
        ! Joint histogram of IWP/ReffIce  - YQIN 04/24/24 
        call hist2D(iwpWRK(j,1:nSubCols),reffIceWRK(j,1:nSubCols),nSubCols,               &
-                   modis_histLWP,numMODISLWPBins,modis_histReffIce,         &
-                   numMODISReffIceBins, IWP_vs_ReffIce(j,1:numMODISLWPBins,1:numMODISReffIceBins))                   
+                   modis_histIWP,numMODISIWPBins,modis_histReffIce,         &
+                   numMODISReffIceBins, IWP_vs_ReffIce(j,1:numMODISIWPBins,1:numMODISReffIceBins))                   
        ! -- end 
 
        ! Joint histogram of tau/ReffICE
@@ -459,6 +677,11 @@ contains
     enddo   
     Optical_Thickness_vs_Cloud_Top_Pressure(1:nPoints,1:numMODISTauBins,1:numMODISPresBins) = &
          Optical_Thickness_vs_Cloud_Top_Pressure(1:nPoints,1:numMODISTauBins,1:numMODISPresBins)/nSubCols
+    Optical_Thickness_vs_ReffIce(1:nPoints,1:numMODISTauBins,1:numMODISReffIceBins) = &
+         Optical_Thickness_vs_ReffIce(1:nPoints,1:numMODISTauBins,1:numMODISReffIceBins)/nSubCols
+    Optical_Thickness_vs_ReffLiq(1:nPoints,1:numMODISTauBins,1:numMODISReffLiqBins) = &
+         Optical_Thickness_vs_ReffLiq(1:nPoints,1:numMODISTauBins,1:numMODISReffLiqBins)/nSubCols 
+                 
     ! YQIN 04/04/23
     Optical_Thickness_vs_Cloud_Top_Pressure_Liq(1:nPoints,1:numMODISTauBins,1:numMODISPresBins) = &
          Optical_Thickness_vs_Cloud_Top_Pressure_Liq(1:nPoints,1:numMODISTauBins,1:numMODISPresBins)/nSubCols
@@ -467,14 +690,8 @@ contains
     LWP_vs_ReffLiq(1:nPoints,1:numMODISLWPBins,1:numMODISReffLiqBins) = &
          LWP_vs_ReffLiq(1:nPoints,1:numMODISLWPBins,1:numMODISReffLiqBins)/nSubCols 
     ! YQIN 04/24/24
-    IWP_vs_ReffIce(1:nPoints,1:numMODISLWPBins,1:numMODISReffIceBins) = &
-         IWP_vs_ReffIce(1:nPoints,1:numMODISLWPBins,1:numMODISReffIceBins)/nSubCols 
-
-
-    Optical_Thickness_vs_ReffIce(1:nPoints,1:numMODISTauBins,1:numMODISReffIceBins) = &
-         Optical_Thickness_vs_ReffIce(1:nPoints,1:numMODISTauBins,1:numMODISReffIceBins)/nSubCols
-    Optical_Thickness_vs_ReffLiq(1:nPoints,1:numMODISTauBins,1:numMODISReffLiqBins) = &
-         Optical_Thickness_vs_ReffLiq(1:nPoints,1:numMODISTauBins,1:numMODISReffLiqBins)/nSubCols 
+    IWP_vs_ReffIce(1:nPoints,1:numMODISIWPBins,1:numMODISReffIceBins) = &
+         IWP_vs_ReffIce(1:nPoints,1:numMODISIWPBins,1:numMODISReffIceBins)/nSubCols 
                  
 
     ! Unit conversion
@@ -498,6 +715,12 @@ contains
     where(Cloud_Fraction_High_Mean /= R_UNDEF)  Cloud_Fraction_High_Mean = Cloud_Fraction_High_Mean*100._wp
     where(Cloud_Fraction_Mid_Mean /= R_UNDEF)   Cloud_Fraction_Mid_Mean = Cloud_Fraction_Mid_Mean*100._wp
     where(Cloud_Fraction_Low_Mean /= R_UNDEF)   Cloud_Fraction_Low_Mean = Cloud_Fraction_Low_Mean*100._wp
+
+    where(cloudMask) 
+        modis_CloudMask = 1._wp
+    elsewhere
+        modis_CloudMask = 0._wp
+    endwhere
 
   end subroutine modis_column
 
@@ -541,6 +764,51 @@ contains
     endif
     
   end function cloud_top_pressure
+
+  ! ########################################################################################
+  ! YQIN 01/18/23 calculate cloud top temperature following the
+  ! cloud_top_pressure function above. 
+
+  function cloud_top_temperature(nLevels,tauIncrement, temperature, tauLimit) 
+    ! INPUTS
+    integer, intent(in)                    :: nLevels
+    real(wp),intent(in),dimension(nLevels) :: tauIncrement, temperature
+    real(wp),intent(in)                    :: tauLimit
+    ! OUTPUTS
+    real(wp)                               :: cloud_top_temperature
+    ! LOCAL VARIABLES
+    real(wp)                               :: deltaX, totalTau, totalProduct
+    integer                                :: i 
+    
+    ! Find the extinction-weighted temperature. Assume that temperature varies linearly between 
+    !   layers and use the trapezoidal rule.
+    totalTau = 0._wp; totalProduct = 0._wp
+    do i = 2, size(tauIncrement)
+      if(totalTau + tauIncrement(i) > tauLimit) then 
+        deltaX = tauLimit - totalTau
+        totalTau = totalTau + deltaX
+        !
+        ! Result for trapezoidal rule when you take less than a full step
+        !   tauIncrement is a layer-integrated value
+        !
+        totalProduct = totalProduct           &
+                     + temperature(i-1) * deltaX &
+                     + (temperature(i) - temperature(i-1)) * deltaX**2/(2._wp * tauIncrement(i)) 
+      else
+        totalTau =     totalTau     + tauIncrement(i) 
+        totalProduct = totalProduct + tauIncrement(i) * (temperature(i) + temperature(i-1)) / 2._wp
+      end if 
+      if(totalTau >= tauLimit) exit
+    end do 
+
+    if (totalTau > 0._wp) then
+       cloud_top_temperature = totalProduct/totalTau
+    else
+       cloud_top_temperature = temperature(nLevels) ! what should be set here ????? 
+    endif
+    
+  end function cloud_top_temperature
+
 
   ! ########################################################################################
   function weight_by_extinction(nLevels,tauIncrement, f, tauLimit) 
@@ -980,5 +1248,101 @@ contains
     Tran_tot = Tran_cumulative(size(Refl))
     
   end subroutine adding_doubling
+
+! ============================================================================================
+! YQIN 01/18/23 function to calculate Nd
+subroutine calNd_bennartz17(e3sm_cloud_top_temp,e3sm_modis_lwp_rel,e3sm_modis_cod_rel,CDNC)
+
+    ! converted from Adam's python code to calculate CDNC from Bennartz (2007)
+
+    real(wp), intent(in) :: e3sm_cloud_top_temp !cloud top temperature (K) assume as 280 K for test.
+    real(wp), intent(in) :: e3sm_modis_lwp_rel  ! in-cloud LWP [kg/m2]
+    real(wp), intent(in) :: e3sm_modis_cod_rel  ! grid-mean cloud optical depth [1]
+    real(wp), intent(out):: CDNC
+
+    real(wp), parameter :: G = 9.8_wp
+    real(wp), parameter :: Cp = 1005.7_wp
+    real(wp), parameter :: Rd = 287._wp
+    real(wp), parameter :: Rv = 461._wp
+    real(wp), parameter :: lv = 2.477e6_wp  !at 10 C
+    real(wp), parameter :: pres_const = 85000._wp !units of Pa (used by Bennartz), could use cloud top pressure, but shouldn't alter the estimates much
+    real(wp), parameter :: Q = 2._wp              !assumed scattering efficiency
+    real(wp), parameter :: k = 0.80_wp            !ratio of volume mean radius to effective radius; Bennartz uses 0.8 +/- 0.1 but can be 0.5-0.9 in nature depending on the cloud type
+    real(wp), parameter :: rho_liq = 1000._wp     !water density
+    real(wp), parameter :: C1 = 0.05789_wp
+    real(wp), parameter :: pai = 3.1415_wp
+
+    real(wp), parameter :: A = 0.8_wp !this is the adiabaticity of the cloud. Set to 1 for an adiabatic cloud. I assume 80% but it can realistically vary between 0 to over 100%.
+    real(wp) :: epsilon
+
+    real(wp) :: rho_air, es, ws, gamma_w, gamma_ad, H
+
+    epsilon = Rd/Rv
+
+    !air density
+    rho_air = pres_const/(Rd*e3sm_cloud_top_temp)
+    !vapor pressure
+    es = 611.2_wp*exp(17.62_wp*(e3sm_cloud_top_temp-273.15_wp)/(243.12_wp + e3sm_cloud_top_temp - 273.15_wp))
+    !saturation vapor pressure
+    ws = epsilon*es/(pres_const - es)
+    !moist adiabatic lapse rate
+    gamma_w = G*((1._wp + lv*ws/(Rd*e3sm_cloud_top_temp))/(Cp + lv**2._wp*ws*epsilon/(Rd*e3sm_cloud_top_temp**2._wp)))
+    !condensate rate
+    gamma_ad = (((epsilon + ws)*ws*lv*gamma_w)/(Rd*e3sm_cloud_top_temp**2._wp) - (G*ws*pres_const/(Rd*e3sm_cloud_top_temp*(pres_const - es))))*rho_air
+
+    !Cloud depth; e3sm_modis_lwp_rel is the cloud LWP, i.e., the grid LWP divided by the cloud fraction
+    H = (2._wp*e3sm_modis_lwp_rel/(A*gamma_ad))**0.5_wp
+
+    !this is Nd [#/cm3]; e3sm_modis_cod_rel is the cloud optical depth after accounting for cloud fraction
+    CDNC = 1.e-6_wp*(((e3sm_modis_cod_rel)**3._wp)/k)*((2._wp*e3sm_modis_lwp_rel)**(-2.5_wp))*((0.6_wp*pai*Q)**(-3._wp))*((3._wp/(4._wp*pai*rho_liq))**(-2._wp))*((A*gamma_ad)**0.5_wp)
+
+end subroutine calNd_bennartz17
+
+! ============================================================================================
+! YQIN 01/26/23 function to calculate Nd (COD,REL)
+subroutine calNd_grosvenor18(e3sm_cloud_top_temp,e3sm_modis_reff,e3sm_modis_cod_rel,CDNC)
+
+    ! Based on Adam's python code to calculate CDNC with equation from Grosvenor et al (2018)
+
+    real(wp), intent(in) :: e3sm_cloud_top_temp !cloud top temperature (K)
+    real(wp), intent(in) :: e3sm_modis_reff     ! effective radius
+    real(wp), intent(in) :: e3sm_modis_cod_rel  ! grid-mean cloud optical depth [1]
+    real(wp), intent(out):: CDNC
+
+    real(wp), parameter :: G = 9.8_wp
+    real(wp), parameter :: Cp = 1005.7_wp
+    real(wp), parameter :: Rd = 287._wp
+    real(wp), parameter :: Rv = 461._wp
+    real(wp), parameter :: lv = 2.477e6_wp  !at 10 C
+    real(wp), parameter :: pres_const = 85000._wp !units of Pa (used by Bennartz), could use cloud top pressure, but shouldn't alter the estimates much
+    real(wp), parameter :: Q = 2._wp              !assumed scattering efficiency
+    real(wp), parameter :: k = 0.80_wp            !ratio of volume mean radius to effective radius; Bennartz uses 0.8 +/- 0.1 but can be 0.5-0.9 in nature depending on the cloud type
+    real(wp), parameter :: rho_liq = 1000._wp     !water density
+    real(wp), parameter :: C1 = 0.05789_wp
+    real(wp), parameter :: pai = 3.1415_wp
+
+    real(wp), parameter :: A = 0.8_wp !this is the adiabaticity of the cloud. Set to 1 for an adiabatic cloud. I assume 80% but it can realistically vary between 0 to over 100%.
+    real(wp) :: epsilon
+
+    real(wp) :: rho_air, es, ws, gamma_w, gamma_ad, H
+
+    epsilon = Rd/Rv
+
+    !air density
+    rho_air = pres_const/(Rd*e3sm_cloud_top_temp)
+    !vapor pressure
+    es = 611.2_wp*exp(17.62_wp*(e3sm_cloud_top_temp-273.15_wp)/(243.12_wp + e3sm_cloud_top_temp - 273.15_wp))
+    !saturation vapor pressure
+    ws = epsilon*es/(pres_const - es)
+    !moist adiabatic lapse rate
+    gamma_w = G*((1._wp + lv*ws/(Rd*e3sm_cloud_top_temp))/(Cp + lv**2._wp*ws*epsilon/(Rd*e3sm_cloud_top_temp**2._wp)))
+    !condensate rate
+    gamma_ad = (((epsilon + ws)*ws*lv*gamma_w)/(Rd*e3sm_cloud_top_temp**2._wp) - (G*ws*pres_const/(Rd*e3sm_cloud_top_temp*(pres_const - es))))*rho_air
+
+    !this is Nd [#/cm3]; e3sm_modis_cod_rel is the cloud optical depth after accounting for cloud fraction
+    CDNC = 1.e-6_wp*(sqrt(5._wp)/(2._wp*k*pai))*sqrt(A*gamma_ad*e3sm_modis_cod_rel/(Q*rho_liq*e3sm_modis_reff**5._wp))
+
+end subroutine calNd_grosvenor18
+
 
 end module mod_modis_sim
